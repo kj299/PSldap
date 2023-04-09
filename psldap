@@ -1,0 +1,28 @@
+# Import the ActiveDirectory module
+Import-Module ActiveDirectory
+
+# Get the current domain name
+$domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().Name
+
+# Set the default LDAP filter
+$ldapFilter = "(objectClass=user)"
+
+# Prompt the user to customize the LDAP filter
+$filter = Read-Host "Enter a custom LDAP filter (press Enter to use default filter)"
+
+if ($filter) {
+    $ldapFilter = $filter
+}
+
+# Build the search query
+$searcher = New-Object System.DirectoryServices.DirectorySearcher
+$searcher.SearchRoot = "LDAP://$domain"
+$searcher.Filter = $ldapFilter
+
+# Execute the search query
+$results = $searcher.FindAll()
+
+# Display the results
+foreach ($result in $results) {
+    Write-Host $result.Properties["samaccountname"]
+}
