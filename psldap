@@ -6,7 +6,7 @@
     This script allows a user to query LDAP based on a custom filter and allows the user to define the LDAP attributes they would like returned. The script also allows the user to pass the LDAP server attribute and use either the current user Active Directory credentials or a specific set of credentials to the LDAP server.
 
 .PARAMETER ldapServer
-    The LDAP server to connect to.
+    The LDAP server to connect to. If not specified, the script will use the current Active Directory connection.
 
 .PARAMETER filter
     The LDAP filter to use for the search.
@@ -20,8 +20,19 @@
 .PARAMETER password
     The password to use when authenticating with the LDAP server.
 
+.PARAMETER secure
+    Use a secure connection to the LDAP server.
+
 .EXAMPLE
-    .\script.ps1 -ldapServer "ldap://your-ldap-server.com" -filter "(objectClass=user)" -attributes "cn", "mail", "telephoneNumber" -username "your-username" -password "your-password"
+    .\script.ps1 -ldapServer "ldap://your-ldap-server.com" -filter "(objectClass=user)" -attributes "cn", "mail", "telephoneNumber" -username "your-username" -password "your-password" -secure
+
+    This example queries an LDAP server at ldap://your-ldap-server.com using a custom filter of (objectClass=user) and returns the cn, mail, and telephoneNumber attributes. The script uses the username "your-username" and password "your-password" to authenticate with the LDAP server over a secure connection.
+
+.EXAMPLE
+    .\script.ps1 -filter "(objectClass=user)" -attributes "cn", "mail", "telephoneNumber"
+
+    This example queries the current Active Directory connection using a custom filter of (objectClass=user) and returns the cn, mail, and telephoneNumber attributes.
+
 #>
 
 param (
@@ -29,18 +40,24 @@ param (
     [string]$filter,
     [string[]]$attributes,
     [string]$username,
-    [string]$password
+    [string]$password,
+    [switch]$secure
 )
 
 if (!$ldapServer) {
-    Write-Host "Please specify an LDAP server."
-    return
+    $ldapServer = "ldap://" + ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).Name
 }
 
 $ldapBaseDN = "DC=your-domain,DC=com"
 
 $searcher = New-Object DirectoryServices.DirectorySearcher
-$searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password)
+
+if ($secure) {
+    $searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password, [DirectoryServices.AuthenticationTypes]::Secure)
+} else {
+    $searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password)
+}
+
 $searcher.Filter = $filter
 $searcher.SearchScope = "Subtree"
 $searcher.PropertiesToLoad.AddRange($attributes)
