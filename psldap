@@ -51,12 +51,17 @@ if (!$ldapServer) {
 $ldapBaseDN = "DC=your-domain,DC=com"
 
 $searcher = New-Object DirectoryServices.DirectorySearcher
+$searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password, [DirectoryServices.AuthenticationTypes]::Secure)
 
 if ($secure) {
     $searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password, [DirectoryServices.AuthenticationTypes]::Secure)
 } else {
     $searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password)
 }
+
+# Set page size for returning results
+$searcher.PageSize = 100
+$searcher.PagedResults = $true
 
 $searcher.Filter = $filter
 $searcher.SearchScope = "Subtree"
