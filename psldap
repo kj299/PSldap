@@ -9,6 +9,7 @@ if ($args -contains "-h" -or $args -contains "-help") {
     Write-Output "  -Filter <filter>          Set the LDAP filter to use (default: (sAMAccountName=$env:USERNAME))"
     Write-Output "  -Attributes <attributes>  Set the comma-separated list of attributes to return (default: mail,telephonenumber)"
     Write-Output "  -Server <server>          Set the Active Directory server to query (default: $env:USERDNSDOMAIN)"
+    Write-Output "  -Verbose                  Enable verbose output for debugging purposes"
     Write-Output "  -h, -help                 Show this help message"
     Write-Output ""
     Write-Output "Examples:"
@@ -21,6 +22,7 @@ if ($args -contains "-h" -or $args -contains "-help") {
 $Filter = "(sAMAccountName=$env:USERNAME)"
 $Attributes = "mail,telephonenumber"
 $Server = $env:USERDNSDOMAIN
+$VerboseOutput = $false
 
 # Parse command line arguments
 for ($i=0; $i -lt $args.Length; $i++) {
@@ -33,6 +35,9 @@ for ($i=0; $i -lt $args.Length; $i++) {
         }
         "-Server" {
             $Server = $args[++$i]
+        }
+        "-Verbose" {
+            $VerboseOutput = $true
         }
     }
 }
@@ -48,12 +53,16 @@ $result = $query.FindAll()
 foreach ($entry in $result) {
     foreach ($property in $entry.Properties) {
         if ($property.Value.Count -gt 0) {
-            foreach($value in $property.Value){
-                Write-Output "$($property.Name): $value"
-            }
+            Write-Output "$($property.Name): $($property.Value[0])"
         } else {
             Write-Output "$($property.Name):"
         }
     }
     Write-Output ""
+}
+
+if ($VerboseOutput) {
+    Write-Output "LDAP query filter: $Filter"
+    Write-Output "LDAP query attributes: $Attributes"
+    Write-Output "LDAP server: $Server"
 }
