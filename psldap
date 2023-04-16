@@ -35,14 +35,8 @@
 
 #>
 
-param (
-    [string]$ldapServer,
-    [string]$filter,
-    [string[]]$attributes,
-    [string]$username,
-    [string]$password,
-    [switch]$secure
-)
+Import-Module ActiveDirectory
+
 
 if (!$ldapServer) {
     $ldapServer = "ldap://" + ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).Name
@@ -61,6 +55,15 @@ $ldapBaseDN = "DC=your-domain,DC=com"
 $searcher = New-Object DirectoryServices.DirectorySearcher
 $searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password, [DirectoryServices.AuthenticationTypes]::Secure)
 
+param (
+    [string]$ldapServer,
+    [string]$filter,
+    [string[]]$attributes,
+    [string]$username,
+    [string]$password,
+    [switch]$secure
+)
+
 if ($secure) {
     $searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password, [DirectoryServices.AuthenticationTypes]::Secure)
 } else {
@@ -69,7 +72,7 @@ if ($secure) {
 
 # Set page size for returning results
 $searcher.PageSize = 100
-$searcher.PageSize = 100
+# $searcher.PagedResults = $true //this doesn't seem to work
 
 $searcher.Filter = $filter
 $searcher.SearchScope = "Subtree"
