@@ -48,6 +48,14 @@ if (!$ldapServer) {
     $ldapServer = "ldap://" + ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).Name
 }
 
+if (!$filter) {
+    $filter = "(sAMAccountName=$env:USERNAME)"
+}
+
+if (!$attributes) {
+    $attributes = "displayName telephonenumber mail"
+}
+
 $ldapBaseDN = "DC=your-domain,DC=com"
 
 $searcher = New-Object DirectoryServices.DirectorySearcher
