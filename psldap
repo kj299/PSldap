@@ -1,88 +1,53 @@
-<#
-.SYNOPSIS
-        Query LDAP based on a custom filter and return specified attributes.
-
-.DESCRIPTION
-    This script allows a user to query LDAP based on a custom filter and allows the user to define the LDAP attributes they would like returned. The script also allows the user to pass the LDAP server attribute and use either the current user Active Directory credentials or a specific set of credentials to the LDAP server.
-
-.PARAMETER ldapServer
-    The LDAP server to connect to. If not specified, the script will use the current Active Directory connection.
-
-.PARAMETER filter
-    The LDAP filter to use for the search.
-
-.PARAMETER attributes
-    The LDAP attributes to return in the search results.
-
-.PARAMETER username
-    The username to use when authenticating with the LDAP server.
-
-.PARAMETER password
-    The password to use when authenticating with the LDAP server.
-
-.PARAMETER secure
-    Use a secure connection to the LDAP server.
-
-.EXAMPLE
-    .\script.ps1 -ldapServer "ldap://your-ldap-server.com" -filter "(objectClass=user)" -attributes "cn", "mail", "telephoneNumber" -username "your-username" -password "your-password" -secure
-
-    This example queries an LDAP server at ldap://your-ldap-server.com using a custom filter of (objectClass=user) and returns the cn, mail, and telephoneNumber attributes. The script uses the username "your-username" and password "your-password" to authenticate with the LDAP server over a secure connection.
-
-.EXAMPLE
-    .\script.ps1 -filter "(objectClass=user)" -attributes "cn", "mail", "telephoneNumber"
-
-    This example queries the current Active Directory connection using a custom filter of (objectClass=user) and returns the cn, mail, and telephoneNumber attributes.
-
-#>
-
+# Import the ActiveDirectory module
 Import-Module ActiveDirectory
 
-
-if (!$ldapServer) {
-    $ldapServer = "ldap://" + ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).Name
+# Check for the -h or -help switch
+if ($args -contains "-h" -or $args -contains "-help") {
+    Write-Output "Usage: .\script.ps1 [-Filter <filter>] [-Attributes <attributes>] [-Server <server>] [-h]"
+    Write-Output ""
+    Write-Output "Options:"
+    Write-Output "  -Filter <filter>          Set the LDAP filter to use (default: (sAMAccountName=$env:USERNAME))"
+    Write-Output "  -Attributes <attributes>  Set the comma-separated list of attributes to return (default: mail,telephonenumber)"
+    Write-Output "  -Server <server>          Set the Active Directory server to query (default: $env:USERDNSDOMAIN)"
+    Write-Output "  -h, -help                 Show this help message"
+    Write-Output ""
+    Write-Output "Examples:"
+    Write-Output "  .\script.ps1"
+    Write-Output "  .\script.ps1 -Filter '(givenName=John)' -Attributes 'mail,telephoneNumber,title' -Server 'mydomain.com'"
+    return
 }
 
-if (!$filter) {
-    $filter = "(sAMAccountName=$env:USERNAME)"
-}
+# Set default values for filter, attributes, and server
+$Filter = "(sAMAccountName=$env:USERNAME)"
+$Attributes = "mail,telephonenumber"
+$Server = $env:USERDNSDOMAIN
 
-if (!$attributes) {
-    $attributes = "displayName telephonenumber mail"
-}
-
-$ldapBaseDN = "DC=your-domain,DC=com"
-
-$searcher = New-Object DirectoryServices.DirectorySearcher
-$searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password, [DirectoryServices.AuthenticationTypes]::Secure)
-
-param (
-    [string]$ldapServer,
-    [string]$filter,
-    [string[]]$attributes,
-    [string]$username,
-    [string]$password,
-    [switch]$secure
-)
-
-if ($secure) {
-    $searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password, [DirectoryServices.AuthenticationTypes]::Secure)
-} else {
-    $searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password)
-}
-
-# Set page size for returning results
-$searcher.PageSize = 100
-# $searcher.PagedResults = $true //this doesn't seem to work
-
-$searcher.Filter = $filter
-$searcher.SearchScope = "Subtree"
-$searcher.PropertiesToLoad.AddRange($attributes)
-
-$results = $searcher.FindAll()
-
-foreach ($result in $results) {
-    Write-Host "------------------------"
-    foreach ($attribute in $attributes) {
-        Write-Host "${attribute}: $($result.Properties[$attribute])"
+# Parse command line arguments
+for ($i=0; $i -lt $args.Length; $i++) {
+    switch ($args[$i]) {
+        "-Filter" {
+            $Filter = $args[++$i]
+        }
+        "-Attributes" {
+            $Attributes = $args[++$i]
+        }
+        "-Server" {
+            $Server = $args[++$i]
+        }
     }
+}
+
+# Build the LDAP query using the filter and attributes
+$query = New-Object System.DirectoryServices.DirectorySearcher
+$query.SearchRoot = "LDAP://$Server"
+$query.Filter = $Filter
+$query.PropertiesToLoad.AddRange($Attributes.Split(','))
+
+# Perform the LDAP query and output the results
+$result = $query.FindAll()
+foreach ($entry in $result) {
+    foreach ($property in $entry.Properties) {
+        Write-Output "$($property.Name): $($property.Value)"
+    }
+    Write-Output ""
 }
