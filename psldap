@@ -47,7 +47,7 @@ $query.PropertiesToLoad.AddRange($Attributes.Split(','))
 $result = $query.FindAll()
 foreach ($entry in $result) {
     foreach ($property in $entry.Properties) {
-        if ($property.Value) {
+        if ($property.Value.Count -gt 0) {
             Write-Output "$($property.Name): $($property.Value[0])"
         } else {
             Write-Output "$($property.Name):"
