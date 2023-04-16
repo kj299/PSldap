@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Query LDAP based on a custom filter and return specified attributes.
+        Query LDAP based on a custom filter and return specified attributes.
 
 .DESCRIPTION
     This script allows a user to query LDAP based on a custom filter and allows the user to define the LDAP attributes they would like returned. The script also allows the user to pass the LDAP server attribute and use either the current user Active Directory credentials or a specific set of credentials to the LDAP server.
@@ -72,6 +72,6 @@ $results = $searcher.FindAll()
 foreach ($result in $results) {
     Write-Host "------------------------"
     foreach ($attribute in $attributes) {
-        Write-Host "$attribute: $($result.Properties[$attribute])"
+        Write-Host "${attribute}: $($result.Properties[$attribute])"
     }
 }
