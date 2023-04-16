@@ -1,19 +1,17 @@
-# Import the ActiveDirectory module
-Import-Module ActiveDirectory
-
 # Check for the -h or -help switch
 if ($args -contains "-h" -or $args -contains "-help") {
-    Write-Output "Usage: .\script.ps1 [-Filter <filter>] [-Attributes <attributes>] [-Server <server>] [-h]"
+    Write-Output "Usage: .\script.ps1 [-Filter <filter>] [-Attributes <attributes>] [-Server <server>] [-Verbose] [-h]"
     Write-Output ""
     Write-Output "Options:"
     Write-Output "  -Filter <filter>          Set the LDAP filter to use (default: (sAMAccountName=$env:USERNAME))"
     Write-Output "  -Attributes <attributes>  Set the comma-separated list of attributes to return (default: mail,telephonenumber)"
     Write-Output "  -Server <server>          Set the Active Directory server to query (default: $env:USERDNSDOMAIN)"
+    Write-Output "  -Verbose                  Enable verbose output"
     Write-Output "  -h, -help                 Show this help message"
     Write-Output ""
     Write-Output "Examples:"
     Write-Output "  .\script.ps1"
-    Write-Output "  .\script.ps1 -Filter '(givenName=John)' -Attributes 'mail,telephoneNumber,title' -Server 'mydomain.com'"
+    Write-Output "  .\script.ps1 -Filter '(givenName=John)' -Attributes 'mail,telephoneNumber,title' -Server 'mydomain.com' -Verbose"
     return
 }
 
@@ -21,6 +19,7 @@ if ($args -contains "-h" -or $args -contains "-help") {
 $Filter = "(sAMAccountName=$env:USERNAME)"
 $Attributes = "mail,telephonenumber"
 $Server = $env:USERDNSDOMAIN
+$Verbose = $false
 
 # Parse command line arguments
 for ($i=0; $i -lt $args.Length; $i++) {
@@ -34,8 +33,14 @@ for ($i=0; $i -lt $args.Length; $i++) {
         "-Server" {
             $Server = $args[++$i]
         }
+        "-Verbose" {
+            $Verbose = $true
+        }
     }
 }
+
+# Import the ActiveDirectory module
+Import-Module ActiveDirectory
 
 # Build the LDAP query using the filter and attributes
 $query = New-Object System.DirectoryServices.DirectorySearcher
@@ -54,4 +59,11 @@ foreach ($entry in $result) {
         }
     }
     Write-Output ""
+}
+
+if ($Verbose) {
+    Write-Output "LDAP Query:"
+    Write-Output "  Server: $Server"
+    Write-Output "  Filter: $Filter"
+    Write-Output "  Attributes: $Attributes"
 }
