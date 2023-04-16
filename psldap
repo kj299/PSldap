@@ -19,7 +19,7 @@ if ($args -contains "-h" -or $args -contains "-help") {
 }
 
 # Set default values for filter, attributes, and server
-$Filter = "(sAMAccountName=$env:USERNAME)"
+$Filter = "(&(objectCategory=person)(objectClass=user)(sAMAccountName=$env:USERNAME))"
 $Attributes = "mail,telephonenumber"
 $Server = $env:USERDNSDOMAIN
 $VerboseOutput = $false
