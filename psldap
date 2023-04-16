@@ -69,7 +69,7 @@ if ($secure) {
 
 # Set page size for returning results
 $searcher.PageSize = 100
-$searcher.PagedResults = $true
+$searcher.PageSize = 100
 
 $searcher.Filter = $filter
 $searcher.SearchScope = "Subtree"
