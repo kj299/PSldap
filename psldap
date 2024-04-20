@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-        Query LDAP based on a custom filter and return specified attributes.
+    Query LDAP based on a custom filter and return specified attributes.
 
 .DESCRIPTION
-    This script allows a user to query LDAP based on a custom filter and allows the user to define the LDAP attributes they would like returned. The script also allows the user to pass the LDAP server attribute and use either the current user Active Directory credentials or a specific set of credentials to the LDAP server.
+    This script allows a user to query LDAP based on a custom filter and allows the user to define the LDAP attributes they would like returned. The script also allows the user to pass the LDAP server attribute and use either the current user Active Directory credentials or a specific set of credentials to the LDAP server. The script supports both secure (LDAPS) and non-secure (LDAP) connections.
 
 .PARAMETER ldapServer
     The LDAP server to connect to. If not specified, the script will use the current Active Directory connection.
@@ -21,7 +21,16 @@
     The password to use when authenticating with the LDAP server.
 
 .PARAMETER secure
-    Use a secure connection to the LDAP server.
+    Use a secure connection (LDAPS) to the LDAP server.
+
+.PARAMETER baseDN
+    The base distinguished name (DN) for the LDAP search. If not specified, the script will use the current domain's base DN.
+
+.PARAMETER delimiter
+    The delimiter to use when printing attribute values. The default is a comma (,).
+
+.PARAMETER pageSize
+    The page size for retrieving LDAP results. The default is 100.
 
 .EXAMPLE
     .\script.ps1 -ldapServer "ldap://your-ldap-server.com" -filter "(objectClass=user)" -attributes "cn", "mail", "telephoneNumber" -username "your-username" -password "your-password" -secure
@@ -33,56 +42,93 @@
 
     This example queries the current Active Directory connection using a custom filter of (objectClass=user) and returns the cn, mail, and telephoneNumber attributes.
 
+.NOTES
+    This script does not require the ActiveDirectory module, but it will attempt to import it for certain functionalities. If the module is not available, the script will continue without it.
 #>
 
-Import-Module ActiveDirectory
-
-
-if (!$ldapServer) {
-    $ldapServer = "ldap://" + ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).Name
-}
-
-if (!$filter) {
-    $filter = "(sAMAccountName=$env:USERNAME)"
-}
-
-if (!$attributes) {
-    $attributes = "displayName telephonenumber mail"
-}
-
-$ldapBaseDN = "DC=your-domain,DC=com"
-
-$searcher = New-Object DirectoryServices.DirectorySearcher
-$searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password, [DirectoryServices.AuthenticationTypes]::Secure)
-
-param (
+[CmdletBinding()]
+param(
     [string]$ldapServer,
     [string]$filter,
     [string[]]$attributes,
     [string]$username,
     [string]$password,
-    [switch]$secure
+    [switch]$secure,
+    [string]$baseDN,
+    [string]$delimiter = ",",
+    [int]$pageSize = 100
 )
 
-if ($secure) {
-    $searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password, [DirectoryServices.AuthenticationTypes]::Secure)
-} else {
-    $searcher.SearchRoot = New-Object DirectoryServices.DirectoryEntry($ldapServer + "/" + $ldapBaseDN, $username, $password)
+# Try to import the ActiveDirectory module
+$activeDirectoryModule = $null
+try {
+    $activeDirectoryModule = Import-Module ActiveDirectory -PassThru -ErrorAction Stop
+}
+catch {
+    Write-Warning "Unable to import the ActiveDirectory module. Continuing without it."
 }
 
-# Set page size for returning results
-$searcher.PageSize = 100
-# $searcher.PagedResults = $true //this doesn't seem to work
+# Set the LDAP server and base DN if not provided
+if ($activeDirectoryModule -and (-not $ldapServer)) {
+    $ldapServer = "LDAP://" + ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).Name
+}
 
+if ($activeDirectoryModule -and (-not $baseDN)) {
+    $baseDN = ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).DistinguishedName
+}
+
+# Set the default filter and attributes if not provided
+if (-not $filter) {
+    $filter = "(sAMAccountName=$env:USERNAME)"
+}
+
+if (-not $attributes) {
+    $attributes = "displayName", "telephoneNumber", "mail"
+}
+
+# Create the LDAP connection and searcher
+$ldapConnection = New-Object System.DirectoryServices.Protocols.LDAPConnection($ldapServer)
+$ldapConnection.Credential = New-Object System.Net.NetworkCredential($username, $password)
+
+$searcher = New-Object System.DirectoryServices.DirectorySearcher($ldapConnection)
 $searcher.Filter = $filter
 $searcher.SearchScope = "Subtree"
 $searcher.PropertiesToLoad.AddRange($attributes)
+$searcher.PageSize = $pageSize
 
-$results = $searcher.FindAll()
+# Set the authentication type based on the secure flag
+if ($secure) {
+    $ldapConnection.AuthType = [System.DirectoryServices.AuthenticationTypes]::SecureSocketsLayer
+    $searcher.SearchRoot = New-Object System.DirectoryServices.DirectoryEntry("LDAPS://$ldapServer/$baseDN")
+}
+else {
+    $ldapConnection.AuthType = [System.DirectoryServices.AuthenticationTypes]::ServerBind
+    $searcher.SearchRoot = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ldapServer/$baseDN")
+}
 
-foreach ($result in $results) {
-    Write-Host "------------------------"
-    foreach ($attribute in $attributes) {
-        Write-Host "${attribute}: $($result.Properties[$attribute])"
+try {
+    # Perform the search
+    $results = $searcher.FindAll()
+
+    # Print the results
+    foreach ($result in $results) {
+        $attributeValues = $attributes | ForEach-Object {
+            $value = $result.Properties[$_][0]
+            if ($null -eq $value) { $value = "" }
+            [System.String]::Join(" ", $value)
+        }
+        Write-Host ($attributeValues -join $delimiter)
+    }
+}
+catch {
+    Write-Error "An error occurred: $_"
+}
+finally {
+    # Dispose of the LDAP connection
+    $ldapConnection.Dispose()
+
+    # Remove the ActiveDirectory module if it was imported
+    if ($activeDirectoryModule) {
+        Remove-Module $activeDirectoryModule
     }
 }
