@@ -1,141 +1,173 @@
 <#
 .SYNOPSIS
-    Query LDAP based on a custom filter and return specified attributes.
+    This script provides functions to connect to and query LDAP servers.
 
 .DESCRIPTION
-    This script allows a user to query LDAP based on a custom filter and allows the user to define the LDAP attributes they would like returned. The script also allows the user to pass the LDAP server attribute and use either the current user Active Directory credentials or a specific set of credentials to the LDAP server. The script supports both secure (LDAPS) and non-secure (LDAP) connections.
-
-.PARAMETER ldapServer
-    The LDAP server to connect to. If not specified, the script will use the current Active Directory connection.
-
-.PARAMETER filter
-    The LDAP filter to use for the search.
-
-.PARAMETER attributes
-    The LDAP attributes to return in the search results.
-
-.PARAMETER username
-    The username to use when authenticating with the LDAP server.
-
-.PARAMETER password
-    The password to use when authenticating with the LDAP server.
-
-.PARAMETER secure
-    Use a secure connection (LDAPS) to the LDAP server.
-
-.PARAMETER baseDN
-    The base distinguished name (DN) for the LDAP search. If not specified, the script will use the current domain's base DN.
-
-.PARAMETER delimiter
-    The delimiter to use when printing attribute values. The default is a comma (,).
-
-.PARAMETER pageSize
-    The page size for retrieving LDAP results. The default is 100.
-
-.EXAMPLE
-    .\script.ps1 -ldapServer "ldap://your-ldap-server.com" -filter "(objectClass=user)" -attributes "cn", "mail", "telephoneNumber" -username "your-username" -password "your-password" -secure
-
-    This example queries an LDAP server at ldap://your-ldap-server.com using a custom filter of (objectClass=user) and returns the cn, mail, and telephoneNumber attributes. The script uses the username "your-username" and password "your-password" to authenticate with the LDAP server over a secure connection.
-
-.EXAMPLE
-    .\script.ps1 -filter "(objectClass=user)" -attributes "cn", "mail", "telephoneNumber"
-
-    This example queries the current Active Directory connection using a custom filter of (objectClass=user) and returns the cn, mail, and telephoneNumber attributes.
+    The script contains functions to connect to LDAP servers, perform searches, and process the results.
+    It supports both secure (LDAPS) and non-secure (LDAP) connections and allows for paging of large result sets.
+    Credentials can be provided to authenticate with the LDAP server.
 
 .NOTES
-    This script does not require the ActiveDirectory module, but it will attempt to import it for certain functionalities. If the module is not available, the script will continue without it.
+    Author: Your Name
+    Version: 1.0
+    Last Updated: 2023-04-22
+
 #>
 
-[CmdletBinding()]
-param(
-    [string]$ldapServer,
-    [string]$filter,
-    [string[]]$attributes,
-    [string]$username,
-    [string]$password,
-    [switch]$secure,
-    [string]$baseDN,
-    [string]$delimiter = ",",
-    [int]$pageSize = 100
-)
+function Connect-LDAPServer {
+    <#
+    .SYNOPSIS
+        Connects to an LDAP server.
 
-# Try to import the ActiveDirectory module
-$activeDirectoryModule = $null
-try {
-    $activeDirectoryModule = Import-Module ActiveDirectory -PassThru -ErrorAction Stop
-}
-catch {
-    Write-Warning "Unable to import the ActiveDirectory module. Continuing without it."
-}
+    .DESCRIPTION
+        This function establishes a connection to an LDAP server using the provided parameters.
+        It supports both secure (LDAPS) and non-secure (LDAP) connections.
 
-# Set the LDAP server and base DN if not provided
-if ($activeDirectoryModule -and (-not $ldapServer)) {
-    $ldapServer = "LDAP://" + ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).Name
-}
+    .PARAMETER LDAPServer
+        The LDAP server to connect to.
 
-# If the ActiveDirectory module is not available, use System.DirectoryServices.Protocols to connect to the LDAP server
-if (-not $activeDirectoryModule) {
-    $ldapConnection = New-Object System.DirectoryServices.Protocols.LdapConnection($ldapServer)
-    $ldapConnection.AuthType = [System.DirectoryServices.Protocols.AuthType]::Negotiate
-    $ldapConnection.Bind()
-}
+    .PARAMETER Port
+        The port number to use for the LDAP connection. Default is 389 for non-secure connections and 636 for secure connections.
 
-if ($activeDirectoryModule -and (-not $baseDN)) {
-    $baseDN = ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).DistinguishedName
-}
+    .PARAMETER Credential
+        The credentials to use for authentication with the LDAP server.
 
-# Set the default filter and attributes if not provided
-if (-not $filter) {
-    $filter = "(sAMAccountName=$env:USERNAME)"
-}
+    .PARAMETER Secure
+        Switch to indicate if a secure (LDAPS) connection should be used.
 
-if (-not $attributes) {
-    $attributes = "displayName", "telephoneNumber", "mail"
-}
+    .EXAMPLE
+        Connect-LDAPServer -LDAPServer 'ldap.example.com' -Credential (Get-Credential)
 
-# Create the LDAP connection and searcher
-$ldapConnection = New-Object System.DirectoryServices.Protocols.LDAPConnection($ldapServer)
-$ldapConnection.Credential = New-Object System.Net.NetworkCredential($username, $password)
+        Connects to the LDAP server 'ldap.example.com' using the provided credentials over a non-secure connection.
 
-$searcher = New-Object System.DirectoryServices.DirectorySearcher($ldapConnection)
-$searcher.Filter = $filter
-$searcher.SearchScope = "Subtree"
-$searcher.PropertiesToLoad.AddRange($attributes)
-$searcher.PageSize = $pageSize
+    .EXAMPLE
+        Connect-LDAPServer -LDAPServer 'ldaps.example.com' -Secure -Credential $credObject
 
-# Set the authentication type based on the secure flag
-if ($secure) {
-    $ldapConnection.AuthType = [System.DirectoryServices.AuthenticationTypes]::SecureSocketsLayer
-    $searcher.SearchRoot = New-Object System.DirectoryServices.DirectoryEntry("LDAPS://$ldapServer/$baseDN")
-}
-else {
-    $ldapConnection.AuthType = [System.DirectoryServices.AuthenticationTypes]::ServerBind
-    $searcher.SearchRoot = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ldapServer/$baseDN")
-}
+        Connects to the LDAP server 'ldaps.example.com' using the provided credential object over a secure connection.
+    #>
 
-try {
-    # Perform the search
-    $results = $searcher.FindAll()
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$LDAPServer,
 
-    # Print the results
-    foreach ($result in $results) {
-        $attributeValues = $attributes | ForEach-Object {
-            $value = $result.Properties[$_][0]
-            if ($null -eq $value) { $value = "" }
-            [System.String]::Join(" ", $value)
-        }
-        Write-Host ($attributeValues -join $delimiter)
+        [Parameter(Mandatory = $false)]
+        [int]$Port,
+
+        [Parameter(Mandatory = $true)]
+        [pscredential]$Credential,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$Secure
+    )
+
+    # Set the default port if not provided
+    if (-not $Port) {
+        $Port = if ($Secure) { 636 } else { 389 }
     }
-}
-catch {
-    Write-Error "An error occurred: $_"
-}
-finally {
-    # Dispose of the LDAP connection
-    $ldapConnection.Dispose()
 
-    # Remove the ActiveDirectory module if it was imported
-    if ($activeDirectoryModule) {
-        Remove-Module $activeDirectoryModule
+    # Set the authentication type based on the secure flag
+    $authType = if ($Secure) {
+        [System.DirectoryServices.AuthenticationTypes]::SecureSocketsLayer
+    } else {
+        [System.DirectoryServices.AuthenticationTypes]::ServerBind
+    }
+
+    # Create the LDAP connection
+    $ldapConnection = New-Object System.DirectoryServices.Protocols.LDAPConnection("$($LDAPServer):$Port", $Credential.GetNetworkCredential())
+    $ldapConnection.AuthType = $authType
+
+    return $ldapConnection
+}
+
+function Search-LDAP {
+    <#
+    .SYNOPSIS
+        Performs a search on an LDAP server.
+
+    .DESCRIPTION
+        This function executes a search query on an LDAP server using the provided parameters.
+        It supports paging of large result sets and allows customization of search scope, filter, and attributes.
+
+    .PARAMETER LDAPConnection
+        The LDAP connection object obtained from the Connect-LDAPServer function.
+
+    .PARAMETER BaseDN
+        The base distinguished name (DN) for the search.
+
+    .PARAMETER Filter
+        The LDAP filter to use for the search.
+
+    .PARAMETER Scope
+        The search scope to use (Base, OneLevel, or Subtree).
+
+    .PARAMETER Attributes
+        The attributes to retrieve for each search result.
+
+    .PARAMETER PageSize
+        The page size for paging large result sets.
+
+    .EXAMPLE
+        $ldapConn = Connect-LDAPServer -LDAPServer 'ldap.example.com' -Credential (Get-Credential)
+        Search-LDAP -LDAPConnection $ldapConn -BaseDN 'DC=example,DC=com' -Filter '(objectClass=user)' -Attributes 'sAMAccountName', 'displayName', 'mail'
+
+        Performs a search on the LDAP server 'ldap.example.com' with the base DN 'DC=example,DC=com', filter '(objectClass=user)', and retrieves the 'sAMAccountName', 'displayName', and 'mail' attributes for each result.
+
+    .EXAMPLE
+        Search-LDAP -LDAPConnection $ldapConn -BaseDN 'OU=Users,DC=example,DC=com' -Filter '(&(objectClass=user)(mail=*@example.com))' -Scope OneLevel -Attributes 'sAMAccountName', 'displayName', 'mail' -PageSize 1000
+
+        Performs a search on the LDAP server with the base DN 'OU=Users,DC=example,DC=com', filter '(&(objectClass=user)(mail=*@example.com))', search scope 'OneLevel', retrieves the 'sAMAccountName', 'displayName', and 'mail' attributes, and uses a page size of 1000 for paging large result sets.
+    #>
+
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [System.DirectoryServices.Protocols.LDAPConnection]$LDAPConnection,
+
+        [Parameter(Mandatory = $true)]
+        [string]$BaseDN,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Filter,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('Base', 'OneLevel', 'Subtree')]
+        [string]$Scope = 'Subtree',
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Attributes,
+
+        [Parameter(Mandatory = $false)]
+        [int]$PageSize = 1000
+    )
+
+    # Create a DirectoryEntry from the LDAPConnection
+    $directoryEntry = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$($LDAPConnection.SessionOptions.HostName)/$BaseDN", $LDAPConnection.Credential)
+
+    # Create the searcher
+    $searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry)
+    $searcher.Filter = $Filter
+    $searcher.SearchScope = $Scope
+    $searcher.PropertiesToLoad.AddRange($Attributes)
+    $searcher.PageSize = $PageSize
+
+    try {
+        # Perform the search and process the results
+        $results = $searcher.FindAll()
+        $results | ForEach-Object {
+            $result = @{}
+            $_.Properties.PropertyNames | ForEach-Object {
+                $result[$_] = $_.Properties[$_]
+            }
+            [PSCustomObject]$result
+        }
+    }
+    catch {
+        Write-Error "An error occurred during the LDAP search: $_"
+    }
+    finally {
+        # Dispose of the DirectoryEntry and LDAPConnection
+        $directoryEntry.Dispose()
+        $LDAPConnection.Dispose()
     }
 }
