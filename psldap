@@ -73,6 +73,13 @@ if ($activeDirectoryModule -and (-not $ldapServer)) {
     $ldapServer = "LDAP://" + ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).Name
 }
 
+# If the ActiveDirectory module is not available, use System.DirectoryServices.Protocols to connect to the LDAP server
+if (-not $activeDirectoryModule) {
+    $ldapConnection = New-Object System.DirectoryServices.Protocols.LdapConnection($ldapServer)
+    $ldapConnection.AuthType = [System.DirectoryServices.Protocols.AuthType]::Negotiate
+    $ldapConnection.Bind()
+}
+
 if ($activeDirectoryModule -and (-not $baseDN)) {
     $baseDN = ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).DistinguishedName
 }
