@@ -32,8 +32,11 @@ def prompt_for_credentials():
     return user_dn, password
 
 def search_ldap(conn, base_dn, search_filter, attributes):
-    conn.search(base_dn, search_filter, attributes=attributes)
-    return conn.entries
+    try:
+        conn.search(base_dn, search_filter, attributes=attributes)
+        return conn.entries
+    except Exception as e:
+        raise Exception(f"Failed to search LDAP: {e}")
 
 def format_output(entries, delimiter, combine_same_attributes):
     if combine_same_attributes:
@@ -65,6 +68,7 @@ Options:
   -a, --attributes  Attributes to retrieve (required)
   -d, --delimiter   Delimiter for output (default is carriage return and line feed)
   -c, --combine     Combine attributes with same name into single column
+  -h, --help        Show this help message and exit
 
 Example:
   python ldap_query.py -s ldap://your-ldap-server -b "dc=example,dc=com" -f "(objectClass=*)" -a cn sn mail -d "," -c
@@ -103,6 +107,9 @@ def main():
         format_output(entries, args.delimiter, args.combine)
     except Exception as e:
         print(f"Error: {e}")
+    finally:
+        if conn:
+            conn.unbind()
 
 if __name__ == "__main__":
     main()
