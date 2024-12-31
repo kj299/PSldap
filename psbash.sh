@@ -1,4 +1,4 @@
-#!/bin/bash
+git config --global user.email "your-email@example.com"#!/bin/bash
 
 # Parameters
 LDAP_SERVER=${LDAP_SERVER:-""}
