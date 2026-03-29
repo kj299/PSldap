@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -NoProfile -Command \"Invoke-Pester -Path ''./psldap.Tests.ps1'' -Output Detailed 2>&1\")",
+      "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"Set-Location ''c:\\\\Users\\\\khali\\\\OneDrive\\\\Documents\\\\src\\\\PSldap''; Invoke-Pester -Path ''.\\\\psldap.Tests.ps1'' -Output Detailed\")",
+      "Bash(cmd /c \"powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"\"Set-Location ''c:\\\\Users\\\\khali\\\\OneDrive\\\\Documents\\\\src\\\\PSldap''; Invoke-Pester -Path ''.\\\\psldap.Tests.ps1'' -Output Detailed\"\"\")",
+      "Bash(pwsh -NoProfile -ExecutionPolicy Bypass -Command \"Set-Location ''c:\\\\Users\\\\khali\\\\OneDrive\\\\Documents\\\\src\\\\PSldap''; Invoke-Pester -Path ''.\\\\psldap.Tests.ps1'' -Output Detailed\")",
+      "Bash(\"c:/Users/khali/OneDrive/Documents/src/PSldap/run-tests.bat\")",
+      "Bash(powershell -NoProfile -Command \"Write-Host ''hello''\")",
+      "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File NUL -Command \"Set-Location ''c:\\\\Users\\\\khali\\\\OneDrive\\\\Documents\\\\src\\\\PSldap''; Invoke-Pester -Path ''.\\\\psldap.Tests.ps1'' -Output Detailed; exit $LASTEXITCODE\")",
+      "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"cd ''c:\\\\Users\\\\khali\\\\OneDrive\\\\Documents\\\\src\\\\PSldap''; Invoke-Pester -Path ''.\\\\psldap.Tests.ps1'' -Output Detailed\")",
+      "Bash(git -C \"c:/Users/khali/OneDrive/Documents/src/PSldap\" status)"
+    ]
+  }
+}
