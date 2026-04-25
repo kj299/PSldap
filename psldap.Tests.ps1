@@ -89,27 +89,10 @@ function Reset-TestResults {
 # ============================================================================
 # Load functions from psldap.ps1
 # ============================================================================
+# psldap.ps1 short-circuits its Main Execution block when dot-sourced
+# ($MyInvocation.InvocationName -eq '.'), so dot-sourcing only loads helpers.
 
-Add-Type -AssemblyName System.DirectoryServices.Protocols
-Add-Type -AssemblyName System.Net
-
-$scriptPath = Join-Path $PSScriptRoot 'psldap.ps1'
-$scriptContent = Get-Content -Path $scriptPath -Raw
-
-$functionsStart = $scriptContent.IndexOf('function Test-LdapFilter')
-if ($functionsStart -lt 0) {
-    $functionsStart = $scriptContent.IndexOf('function Get-BindCredential')
-}
-$mainExecMatch = [regex]::Match($scriptContent, '# =+\r?\n# Main Execution')
-$functionsEnd = if ($mainExecMatch.Success) { $mainExecMatch.Index } else { -1 }
-
-if ($functionsStart -gt 0 -and $functionsEnd -gt $functionsStart) {
-    $functionBlock = $scriptContent.Substring($functionsStart, $functionsEnd - $functionsStart)
-    . ([ScriptBlock]::Create($functionBlock))
-}
-else {
-    throw "Could not extract function definitions from psldap.ps1"
-}
+. (Join-Path $PSScriptRoot 'psldap.ps1')
 
 # ============================================================================
 # Test-LdapFilter Tests
@@ -705,10 +688,19 @@ Describe 'Edge Cases' {
         Assert-Equal '!' $result[-1]
     }
 
-    It 'Format-LdifOutput handles DN that needs Base64 encoding' {
+    It 'Format-LdifOutput Base64-encodes DN that needs encoding' {
         $entries = @([ordered]@{ dn = ' cn=leading space,dc=com'; cn = @('test') })
         $result = Format-LdifOutput -Entries $entries -WrapCol 76 -Terse
-        Assert-Match $result 'dn: '
+        Assert-Match $result '(?m)^dn:: '
+        $expected = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes(' cn=leading space,dc=com'))
+        Assert-Match $result ([regex]::Escape($expected))
+    }
+
+    It 'Format-LdifOutput emits plain dn: for printable ASCII DN' {
+        $entries = @([ordered]@{ dn = 'cn=plain,dc=com'; cn = @('test') })
+        $result = Format-LdifOutput -Entries $entries -WrapCol 76 -Terse
+        Assert-Match $result '(?m)^dn: cn=plain,dc=com'
+        Assert-NotMatch $result '(?m)^dn:: '
     }
 
     It 'Format-JsonOutput handles entries with empty attribute arrays' {

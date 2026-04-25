@@ -178,7 +178,9 @@ param (
 
     [switch]$promptForBindPassword,
 
-    [Alias('Z')]
+    # Note: ldapsearch uses '-Z' for StartTLS, but PowerShell aliases are
+    # case-insensitive — '-Z' would collide with '-z' (sizeLimit). Use the
+    # full -useSSL / -useStartTLS names instead.
     [switch]$useSSL,
 
     [Alias('q')]
@@ -207,7 +209,9 @@ param (
     [ValidateSet('never', 'always', 'search', 'find')]
     [string]$dereferencePolicy = 'never',
 
-    [Alias('A')]
+    # Note: ldapsearch uses '-A' for typesOnly, but PowerShell aliases are
+    # case-insensitive — '-A' would collide with '-a' (dereferencePolicy).
+    # Use the full -typesOnly name instead.
     [switch]$typesOnly,
 
     [string[]]$filter,
@@ -277,7 +281,9 @@ param (
 
     [switch]$terse,
 
-    [Alias('S')]
+    # Note: ldapsearch uses '-S' for sortOrder, but PowerShell aliases are
+    # case-insensitive — '-S' would collide with '-s' (scope). Use the
+    # full -sortOrder name instead.
     [string]$sortOrder,
 
     [ValidateRange(1, [int]::MaxValue)]
@@ -567,6 +573,29 @@ function ConvertTo-TransformedEntry {
     return $result
 }
 
+function Get-StableStringHash {
+    <#
+    .SYNOPSIS
+        Returns a stable Int32 hash of a string. Used instead of String.GetHashCode()
+        because that is randomized per-process on .NET Core / PowerShell 7+,
+        which would break cross-run determinism of scrambled values.
+        Uses MD5 (non-cryptographic use — just a stable mixer). Native to .NET, no module install.
+    #>
+    param([string]$Value)
+
+    if ([string]::IsNullOrEmpty($Value)) { return 0 }
+
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
+    $md5 = [System.Security.Cryptography.MD5]::Create()
+    try {
+        $hashBytes = $md5.ComputeHash($bytes)
+        return [BitConverter]::ToInt32($hashBytes, 0)
+    }
+    finally {
+        $md5.Dispose()
+    }
+}
+
 function Invoke-ScrambleValue {
     <#
     .SYNOPSIS
@@ -578,8 +607,8 @@ function Invoke-ScrambleValue {
         [int]$Seed
     )
 
-    # Combine seed with a hash of the value for deterministic per-value scrambling
-    $valueHash = $Value.GetHashCode()
+    # Combine seed with a stable hash of the value for cross-run deterministic scrambling.
+    $valueHash = Get-StableStringHash -Value $Value
     $rng = [System.Random]::new($Seed -bxor $valueHash)
 
     $chars = $Value.ToCharArray()
@@ -676,7 +705,13 @@ function Format-LdifOutput {
     }
 
     foreach ($entry in $Entries) {
-        $dnLine = "dn: $($entry.dn)"
+        if (Test-NeedsBase64 -Value $entry.dn) {
+            $dnB64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($entry.dn))
+            $dnLine = "dn:: $dnB64"
+        }
+        else {
+            $dnLine = "dn: $($entry.dn)"
+        }
         if ($NoWrap) {
             [void]$sb.AppendLine($dnLine)
         }
@@ -888,7 +923,11 @@ function Write-SearchOutput {
     }
 
     if ($OutFile) {
-        $output | Out-File -FilePath $OutFile -Encoding UTF8 -NoNewline
+        # UTF-8 without BOM. Out-File -Encoding UTF8 writes a BOM on Windows PowerShell 5.1,
+        # which breaks LDIF (RFC 2849 mandates no BOM) and many CSV consumers.
+        $resolvedPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutFile)
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText($resolvedPath, $output, $utf8NoBom)
         if ($TeeToStdOut) {
             Write-Output $output
         }
@@ -1102,13 +1141,15 @@ function Invoke-SearchAndOutput {
             $columns = $Attrs
         }
         else {
-            $colSet = [System.Collections.Generic.LinkedHashSet[string]]::new()
+            # Insertion-ordered de-duplication (no LinkedHashSet in .NET).
+            $seen = [System.Collections.Generic.HashSet[string]]::new()
+            $colList = [System.Collections.Generic.List[string]]::new()
             foreach ($entry in $transformedEntries) {
                 foreach ($key in $entry.Keys) {
-                    if ($key -ne 'dn') { [void]$colSet.Add($key) }
+                    if ($key -ne 'dn' -and $seen.Add($key)) { $colList.Add($key) }
                 }
             }
-            $columns = @($colSet)
+            $columns = $colList.ToArray()
         }
     }
 
@@ -1140,6 +1181,12 @@ function Invoke-SearchAndOutput {
 # ============================================================================
 # Main Execution
 # ============================================================================
+
+# Skip the main execution block when dot-sourced (e.g., from the test harness),
+# so callers can load helper functions without firing connection/search logic.
+if ($MyInvocation.InvocationName -eq '.') {
+    return
+}
 
 $exitCode = 0
 
