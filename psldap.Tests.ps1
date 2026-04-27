@@ -694,9 +694,15 @@ Describe 'Source-Code Checks' {
         # de-duplication. That type is Java; .NET has no equivalent and
         # the script crashed at runtime on CSV / tab output without
         # -requestedAttribute. Fixed by using HashSet[string] + List[string].
+        #
+        # The pattern targets the .NET type-bracket syntax specifically
+        # ('[LinkedHashSet' or '[System.Collections.Generic.LinkedHashSet')
+        # rather than the bare word, so a comment that mentions the
+        # regression history (like the one in psldap.ps1) doesn't trigger
+        # a false positive.
         $scriptPath = Join-Path $PSScriptRoot 'psldap.ps1'
         $content = Get-Content -Path $scriptPath -Raw
-        Assert-NotMatch $content 'LinkedHashSet'
+        Assert-NotMatch $content '\[(System\.Collections\.Generic\.)?LinkedHashSet'
     }
 }
 
