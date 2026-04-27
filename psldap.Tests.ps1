@@ -91,6 +91,11 @@ function Reset-TestResults {
 # ============================================================================
 # psldap.ps1 short-circuits its Main Execution block when dot-sourced
 # ($MyInvocation.InvocationName -eq '.'), so dot-sourcing only loads helpers.
+#
+# Side effect: dot-sourcing also imports psldap.ps1's param() block as
+# variables in this scope (e.g. $hostname, $port, $baseDN, $filter, $scope).
+# Avoid those names when introducing new test-scoped variables, or shadow
+# them deliberately inside an `It` block.
 
 . (Join-Path $PSScriptRoot 'psldap.ps1')
 
@@ -724,5 +729,52 @@ Describe 'Edge Cases' {
         Assert-Equal 76 $lines[0].Length
         # second line: space + 75 chars = 76
         if ($lines[1]) { Assert-Equal ' ' $lines[1][0] }
+    }
+}
+
+# ============================================================================
+# Regression Tests
+# ----------------------------------------------------------------------------
+# Tests targeting specific past regressions. Failures here indicate that a
+# previously-fixed bug has come back.
+# ============================================================================
+Describe 'Regression Tests' {
+    It 'Write-SearchOutput writes UTF-8 without BOM to output file' {
+        # Regression: Out-File -Encoding UTF8 emits a BOM on Windows
+        # PowerShell 5.1, which RFC 2849 forbids and many CSV consumers
+        # mis-parse. Fixed by routing through [IO.File]::WriteAllText
+        # with UTF8Encoding($false).
+        $outPath = Join-Path $env:TEMP 'psldap_test_bom.ldif'
+        try {
+            $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('test') })
+            Write-SearchOutput -Entries $entries -Format 'LDIF' -WrapCol 76 -OutFile $outPath
+            $bytes = [System.IO.File]::ReadAllBytes($outPath)
+            Assert-True ($bytes.Length -ge 3) "Output file is too short to inspect for BOM"
+            $hasBom = ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+            Assert-False $hasBom "Output file unexpectedly contains UTF-8 BOM"
+        }
+        finally {
+            if (Test-Path $outPath) { Remove-Item $outPath -Force }
+        }
+    }
+
+    It 'Invoke-ScrambleValue is deterministic across separate PowerShell processes' {
+        # Regression: String.GetHashCode() is randomized per process on
+        # .NET Core / PowerShell 7+, so scrambled output differed across
+        # runs. Fixed by hashing through Get-StableStringHash (MD5).
+        # This test spawns a fresh PowerShell process and verifies the
+        # same input produces the same output. If anyone reverts to
+        # GetHashCode(), this assertion will fail under PS 7+.
+        $pwshExe = (Get-Process -Id $PID).Path
+        Assert-NotNull $pwshExe "Could not resolve current PowerShell executable"
+
+        $scriptPath = Join-Path $PSScriptRoot 'psldap.ps1'
+        $localResult = Invoke-ScrambleValue -Value 'TestValue123' -Seed 42
+
+        $inner = ". '$scriptPath'; Invoke-ScrambleValue -Value 'TestValue123' -Seed 42"
+        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($inner))
+        $remoteResult = (& $pwshExe -NoProfile -NoLogo -EncodedCommand $encoded | Out-String).Trim()
+
+        Assert-Equal $localResult $remoteResult "Scramble output differs across processes"
     }
 }

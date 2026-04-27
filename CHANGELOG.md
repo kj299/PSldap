@@ -2,6 +2,32 @@
 
 All notable changes to PSldap are documented here.
 
+## [0.2.2] - 2026-04-27
+
+Regression-coverage release. Adds tests targeting the two fixes from
+0.2.1 that previously had no dedicated test, plus a small documentation
+clarification in the test harness.
+
+### Tests
+
+- Added `Write-SearchOutput writes UTF-8 without BOM to output file` —
+  reads the first three bytes of the produced file and asserts they
+  are not `EF BB BF`. Catches any future regression that re-introduces
+  a BOM in file output.
+- Added `Invoke-ScrambleValue is deterministic across separate
+  PowerShell processes` — spawns a child `pwsh` via `-EncodedCommand`,
+  runs the same scramble there, and asserts the output matches the
+  in-process result. Catches any regression to
+  `String.GetHashCode()`-based hashing (which is randomized per
+  process on PowerShell 7+).
+
+### Documentation
+
+- Test harness now notes that dot-sourcing `psldap.ps1` imports its
+  `param()` block as variables in the test scope (e.g. `$hostname`,
+  `$port`, `$baseDN`, `$filter`, `$scope`), so future test authors
+  avoid accidental name collisions.
+
 ## [0.2.1] - 2026-04-25
 
 Hardening release: removes a latent script-load failure, fixes RFC
