@@ -10,6 +10,8 @@ param(
     [int]$Iterations = 3
 )
 
+$totalFailed = 0
+
 for ($i = 1; $i -le $Iterations; $i++) {
     Write-Host "`n============================================" -ForegroundColor Cyan
     Write-Host "  Test Run $i of $Iterations" -ForegroundColor Cyan
@@ -33,5 +35,11 @@ for ($i = 1; $i -le $Iterations; $i++) {
         }
     }
 
+    $totalFailed += $summary.Failed
     Reset-TestResults
+}
+
+if ($totalFailed -gt 0) {
+    Write-Host "`nTotal failures across all runs: $totalFailed" -ForegroundColor Red
+    exit 1
 }

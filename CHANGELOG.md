@@ -2,6 +2,29 @@
 
 All notable changes to PSldap are documented here.
 
+## [Unreleased]
+
+CI infrastructure and additional regression coverage. Builds on the
+test additions in #5.
+
+### Added
+
+- **GitHub Actions workflow** (`.github/workflows/tests.yml`). Runs
+  `run-tests.ps1 -Iterations 3` on `windows-latest` for every push to
+  `main` and every pull request targeting `main`. Gates merges on
+  test-suite green.
+- **`Source-Code Checks`** Describe block in `psldap.Tests.ps1` with a
+  test asserting the script does not reference `LinkedHashSet`. The
+  type doesn't exist in .NET; a regression to it crashed CSV / tab
+  output at runtime in a previous version. Static check, no LDAP
+  connection required.
+
+### Changed
+
+- `run-tests.ps1` now `exit 1`s when any test fails (sum of failures
+  across all iterations). Previously the script always exited 0, so
+  CI couldn't gate on test failures.
+
 ## [0.2.1] - 2026-04-25
 
 Hardening release: removes a latent script-load failure, fixes RFC

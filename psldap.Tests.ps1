@@ -681,6 +681,25 @@ Describe 'Read-FiltersFromFile - Filter Validation' {
     }
 }
 
+# ============================================================================
+# Source-Code Checks
+# ----------------------------------------------------------------------------
+# Tests that grep / parse psldap.ps1 itself to catch regressions that are
+# easier to spot statically than to reproduce behaviorally.
+# ============================================================================
+Describe 'Source-Code Checks' {
+    It 'psldap.ps1 does not reference [LinkedHashSet] (which does not exist in .NET)' {
+        # Regression: a previous version tried to instantiate
+        # [System.Collections.Generic.LinkedHashSet[string]] for ordered
+        # de-duplication. That type is Java; .NET has no equivalent and
+        # the script crashed at runtime on CSV / tab output without
+        # -requestedAttribute. Fixed by using HashSet[string] + List[string].
+        $scriptPath = Join-Path $PSScriptRoot 'psldap.ps1'
+        $content = Get-Content -Path $scriptPath -Raw
+        Assert-NotMatch $content 'LinkedHashSet'
+    }
+}
+
 Describe 'Edge Cases' {
     It 'Invoke-ScrambleValue preserves dash and exclamation in unicode string' {
         $result = Invoke-ScrambleValue -Value 'abcd-123!' -Seed 42

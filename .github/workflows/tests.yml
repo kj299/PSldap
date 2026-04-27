@@ -1,0 +1,22 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pwsh-windows:
+    name: PowerShell 7 (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        shell: pwsh
+        run: $PSVersionTable
+
+      - name: Run test suite (3 iterations)
+        shell: pwsh
+        run: ./run-tests.ps1 -Iterations 3
