@@ -145,6 +145,39 @@ Describe 'Test-LdapFilter' {
 }
 
 # ============================================================================
+# Get-StableStringHash Tests
+# ============================================================================
+Describe 'Get-StableStringHash' {
+    It 'Returns 0 for empty string' {
+        Assert-Equal 0 (Get-StableStringHash -Value '')
+    }
+
+    It 'Returns 0 for $null input' {
+        Assert-Equal 0 (Get-StableStringHash -Value $null)
+    }
+
+    It 'Pins MD5-derived Int32 output for "hello"' {
+        # MD5("hello") = 5d41402abc4b2a76b9719d911017c592
+        # First 4 bytes -> BitConverter::ToInt32 (little-endian) = 0x2a40415d.
+        # Pinning the exact value catches:
+        #   1. any change to the hashing algorithm (e.g. revert to GetHashCode)
+        #   2. accidental endianness changes
+        #   3. UTF-8 vs. UTF-16 encoding regressions
+        # Assumes little-endian (true on every platform PowerShell runs on).
+        Assert-Equal 0x2a40415d (Get-StableStringHash -Value 'hello')
+    }
+
+    It 'Produces the same output across repeated calls in this process' {
+        # Within a single process this is also true of GetHashCode(), so this
+        # test alone does not catch the cross-process regression — see the
+        # Regression Tests block for that. Kept here as a basic sanity check.
+        $a = Get-StableStringHash -Value 'TestValue'
+        $b = Get-StableStringHash -Value 'TestValue'
+        Assert-Equal $a $b
+    }
+}
+
+# ============================================================================
 # Invoke-ScrambleValue Tests
 # ============================================================================
 Describe 'Invoke-ScrambleValue' {
@@ -774,6 +807,9 @@ Describe 'Regression Tests' {
         $inner = ". '$scriptPath'; Invoke-ScrambleValue -Value 'TestValue123' -Seed 42"
         $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($inner))
         $remoteResult = (& $pwshExe -NoProfile -NoLogo -EncodedCommand $encoded | Out-String).Trim()
+        # Surface child-process failures with a clear message instead of
+        # letting the value comparison fail with "Expected X, Got ''".
+        Assert-Equal 0 $LASTEXITCODE "Child PowerShell process exited non-zero. Output: $remoteResult"
 
         Assert-Equal $localResult $remoteResult "Scramble output differs across processes"
     }

@@ -19,7 +19,15 @@ clarification in the test harness.
   runs the same scramble there, and asserts the output matches the
   in-process result. Catches any regression to
   `String.GetHashCode()`-based hashing (which is randomized per
-  process on PowerShell 7+).
+  process on PowerShell 7+). Asserts `$LASTEXITCODE -eq 0` first so a
+  child-process failure surfaces with a clear message instead of a
+  confusing value mismatch.
+- Added a `Describe 'Get-StableStringHash'` block with four tests:
+  empty / `$null` return `0`, a pinned MD5-derived Int32 value for
+  `"hello"` (`0x2a40415d`), and a basic in-process determinism check.
+  The pinned value catches algorithm changes, endianness regressions,
+  and UTF-8 vs. UTF-16 encoding regressions without spawning a
+  subprocess.
 
 ### Documentation
 
