@@ -573,6 +573,28 @@ function ConvertTo-TransformedEntry {
     return $result
 }
 
+# ----------------------------------------------------------------------------
+# MD5 capability detection & instance cache for Get-StableStringHash.
+#
+# Option C from issue #13: prefer the static [MD5]::HashData($bytes) method
+# (PS 7.2+ / .NET 5+, allocation-free except for the result array). On
+# Windows PowerShell 5.1, where HashData isn't available, fall back to a
+# single cached [MD5] instance reused across calls.
+#
+# Both paths produce byte-identical output. The pinned regression test
+# (Get-StableStringHash 'hello' = 0x2a40415d) and the cross-process
+# determinism test catch any drift.
+#
+# Caveat (single-threaded assumption): [HashAlgorithm] is not thread-safe.
+# PowerShell scripts run single-threaded by convention, but the cached
+# instance MUST NOT be used from multiple runspaces concurrently
+# (e.g. `ForEach-Object -Parallel`, runspace pools). If parallel scramble
+# is ever added, switch to per-runspace instances or the static path
+# unconditionally. See enhancement issue tracking the alternatives.
+# ----------------------------------------------------------------------------
+$script:_useHashDataStatic = ([System.Security.Cryptography.MD5].GetMethod('HashData', [Type[]]@([byte[]])) -ne $null)
+$script:_md5Instance = $null
+
 function Get-StableStringHash {
     <#
     .SYNOPSIS
@@ -586,14 +608,22 @@ function Get-StableStringHash {
     if ([string]::IsNullOrEmpty($Value)) { return 0 }
 
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
-    $md5 = [System.Security.Cryptography.MD5]::Create()
-    try {
-        $hashBytes = $md5.ComputeHash($bytes)
-        return [BitConverter]::ToInt32($hashBytes, 0)
+    if ($script:_useHashDataStatic) {
+        # PS 7.2+ / .NET 5+ path — no instance, no IDisposable, allocation-free
+        # except for the returned byte[].
+        $hashBytes = [System.Security.Cryptography.MD5]::HashData($bytes)
     }
-    finally {
-        $md5.Dispose()
+    else {
+        # PS 5.1 fallback — reuse a single cached MD5 instance across calls.
+        # ComputeHash(byte[]) is a one-shot call that resets internal state,
+        # so per-call disposal isn't needed. The instance lives for process
+        # lifetime; this is fine for a CLI tool that exits cleanly.
+        if (-not $script:_md5Instance) {
+            $script:_md5Instance = [System.Security.Cryptography.MD5]::Create()
+        }
+        $hashBytes = $script:_md5Instance.ComputeHash($bytes)
     }
+    return [BitConverter]::ToInt32($hashBytes, 0)
 }
 
 function Invoke-ScrambleValue {

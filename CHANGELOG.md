@@ -39,6 +39,18 @@ required (the project's no-install principle still holds).
   values `<= 0` and unparseable strings both clamp to "no retries"
   (one attempt total).
 
+### Performance
+
+- **`Get-StableStringHash` no longer allocates a fresh `[MD5]` instance
+  per call.** Implements Option C from #13 — runtime detection of
+  `[MD5]::HashData($bytes)` (PS 7.2+ / .NET 5+, allocation-free
+  except for the result array); on Windows PowerShell 5.1, falls
+  back to a single cached `[MD5]` instance reused across calls.
+  Output is byte-identical on both paths (pinned by the
+  `Get-StableStringHash 'hello' = 0x2a40415d` regression test and
+  the cross-process determinism test). Single-threaded by design;
+  do not call from concurrent runspaces.
+
 ## [0.2.2] - 2026-04-27
 
 Regression-coverage and CI infrastructure release. Adds dedicated
