@@ -23,32 +23,40 @@ on:
       - 'ad-ldap-query/**'
       - '.github/workflows/ad-ldap-query.yml'
 
+# Two explicit jobs rather than a strategy.matrix. See tests.yml
+# for the rationale: GitHub Actions rejects expressions in the
+# step-level `shell:` field, so we can't use `matrix.X` to pick
+# between `pwsh` and `powershell`.
+
 jobs:
-  offline:
-    # NB: the matrix dimension is named `interpreter`, not `shell`.
-    # `shell` is reserved at the step level, so naming a matrix var
-    # `shell` collides in expression scope and produces
-    # "Unrecognized named-value: 'matrix'" at workflow parse time.
-    name: ${{ matrix.label }} (Windows, offline only)
+  offline-pwsh:
+    name: PowerShell 7 (Windows, offline only)
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - interpreter: pwsh
-            label: PowerShell 7
-          - interpreter: powershell
-            label: Windows PowerShell 5.1
     steps:
       - uses: actions/checkout@v4
 
       - name: Show PowerShell version
-        shell: ${{ matrix.interpreter }}
+        shell: pwsh
         run: $PSVersionTable
 
       - name: Run harness (offline only)
-        shell: ${{ matrix.interpreter }}
+        shell: pwsh
         working-directory: ad-ldap-query
         # RUN_LIVE_AD_TESTS is intentionally unset, so live tests SKIP
         # and the suite gates only offline correctness.
+        run: ./Test-AdLdapQueryHarness.ps1
+
+  offline-powershell-5-1:
+    name: Windows PowerShell 5.1 (Windows, offline only)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        shell: powershell
+        run: $PSVersionTable
+
+      - name: Run harness (offline only)
+        shell: powershell
+        working-directory: ad-ldap-query
         run: ./Test-AdLdapQueryHarness.ps1

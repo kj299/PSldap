@@ -18,35 +18,40 @@ on:
       - 'run-tests.ps1'
       - '.github/workflows/tests.yml'
 
+# Two explicit jobs rather than a strategy.matrix. We tried
+# `matrix.include` with `shell: ${{ matrix.X }}` and GitHub Actions
+# rejected the expression in the step-level `shell:` field with
+# "Unrecognized named-value: 'matrix'" at workflow parse time.
+# Two static jobs are more verbose but unambiguously correct, and
+# the project explicitly targets both shells: PS 7 (BOM fix
+# baseline) and Windows PowerShell 5.1 (the BOM regression and the
+# scramble-determinism test were both 5.1-driven).
+
 jobs:
-  test:
-    # Matrix: both shells live on every windows-latest runner — `pwsh`
-    # is PowerShell 7+, `powershell` is Windows PowerShell 5.1. The
-    # project explicitly targets both (see e.g. the BOM fix in 0.2.1
-    # and the cross-process scramble determinism test, which were
-    # 5.1-specific).
-    #
-    # NB: the matrix dimension is named `interpreter`, not `shell`.
-    # `shell` is reserved at the step level, so naming a matrix var
-    # `shell` collides in expression scope and produces
-    # "Unrecognized named-value: 'matrix'" at workflow parse time.
-    name: ${{ matrix.label }} (Windows)
+  test-pwsh:
+    name: PowerShell 7 (Windows)
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - interpreter: pwsh
-            label: PowerShell 7
-          - interpreter: powershell
-            label: Windows PowerShell 5.1
     steps:
       - uses: actions/checkout@v4
 
       - name: Show PowerShell version
-        shell: ${{ matrix.interpreter }}
+        shell: pwsh
         run: $PSVersionTable
 
       - name: Run test suite (3 iterations)
-        shell: ${{ matrix.interpreter }}
+        shell: pwsh
+        run: ./run-tests.ps1 -Iterations 3
+
+  test-powershell-5-1:
+    name: Windows PowerShell 5.1 (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        shell: powershell
+        run: $PSVersionTable
+
+      - name: Run test suite (3 iterations)
+        shell: powershell
         run: ./run-tests.ps1 -Iterations 3
