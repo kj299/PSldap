@@ -25,23 +25,28 @@ jobs:
     # project explicitly targets both (see e.g. the BOM fix in 0.2.1
     # and the cross-process scramble determinism test, which were
     # 5.1-specific).
+    #
+    # NB: the matrix dimension is named `interpreter`, not `shell`.
+    # `shell` is reserved at the step level, so naming a matrix var
+    # `shell` collides in expression scope and produces
+    # "Unrecognized named-value: 'matrix'" at workflow parse time.
     name: ${{ matrix.label }} (Windows)
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - shell: pwsh
+          - interpreter: pwsh
             label: PowerShell 7
-          - shell: powershell
+          - interpreter: powershell
             label: Windows PowerShell 5.1
     steps:
       - uses: actions/checkout@v4
 
       - name: Show PowerShell version
-        shell: ${{ matrix.shell }}
+        shell: ${{ matrix.interpreter }}
         run: $PSVersionTable
 
       - name: Run test suite (3 iterations)
-        shell: ${{ matrix.shell }}
+        shell: ${{ matrix.interpreter }}
         run: ./run-tests.ps1 -Iterations 3

@@ -25,25 +25,29 @@ on:
 
 jobs:
   offline:
+    # NB: the matrix dimension is named `interpreter`, not `shell`.
+    # `shell` is reserved at the step level, so naming a matrix var
+    # `shell` collides in expression scope and produces
+    # "Unrecognized named-value: 'matrix'" at workflow parse time.
     name: ${{ matrix.label }} (Windows, offline only)
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - shell: pwsh
+          - interpreter: pwsh
             label: PowerShell 7
-          - shell: powershell
+          - interpreter: powershell
             label: Windows PowerShell 5.1
     steps:
       - uses: actions/checkout@v4
 
       - name: Show PowerShell version
-        shell: ${{ matrix.shell }}
+        shell: ${{ matrix.interpreter }}
         run: $PSVersionTable
 
       - name: Run harness (offline only)
-        shell: ${{ matrix.shell }}
+        shell: ${{ matrix.interpreter }}
         working-directory: ad-ldap-query
         # RUN_LIVE_AD_TESTS is intentionally unset, so live tests SKIP
         # and the suite gates only offline correctness.
