@@ -2,6 +2,59 @@
 
 All notable changes to PSldap are documented here.
 
+## [0.2.2] - 2026-04-27
+
+Regression-coverage and CI infrastructure release. Adds dedicated
+tests for the two fixes from 0.2.1 that previously had none, wires
+up GitHub Actions to gate merges on the test suite, and tightens
+test-harness hygiene.
+
+### Added
+
+- **GitHub Actions workflow** (`.github/workflows/tests.yml`). Runs
+  `run-tests.ps1 -Iterations 3` on `windows-latest` for every push to
+  `main` and every pull request targeting `main`. Gates merges on
+  test-suite green.
+
+### Tests
+
+- Added `Write-SearchOutput writes UTF-8 without BOM to output file` —
+  reads the first three bytes of the produced file and asserts they
+  are not `EF BB BF`. Catches any future regression that re-introduces
+  a BOM in file output.
+- Added `Invoke-ScrambleValue is deterministic across separate
+  PowerShell processes` — spawns a child `pwsh` via `-EncodedCommand`,
+  runs the same scramble there, and asserts the output matches the
+  in-process result. Catches any regression to
+  `String.GetHashCode()`-based hashing (which is randomized per
+  process on PowerShell 7+). Asserts `$LASTEXITCODE -eq 0` first so a
+  child-process failure surfaces with a clear message instead of a
+  confusing value mismatch.
+- Added a `Describe 'Get-StableStringHash'` block with four tests:
+  empty / `$null` return `0`, a pinned MD5-derived Int32 value for
+  `"hello"` (`0x2a40415d`), and a basic in-process determinism check.
+  The pinned value catches algorithm changes, endianness regressions,
+  and UTF-8 vs. UTF-16 encoding regressions without spawning a
+  subprocess.
+- Added a `Describe 'Source-Code Checks'` block with a test asserting
+  `psldap.ps1` does not reference `[LinkedHashSet]`. The type doesn't
+  exist in .NET; a regression to it crashed CSV / tab output at
+  runtime in a previous version. Static check, no LDAP connection
+  required.
+
+### Changed
+
+- `run-tests.ps1` now `exit 1`s when any test fails (sum of failures
+  across all iterations). Previously the script always exited 0, so
+  CI couldn't gate on test failures.
+
+### Documentation
+
+- Test harness now notes that dot-sourcing `psldap.ps1` imports its
+  `param()` block as variables in the test scope (e.g. `$hostname`,
+  `$port`, `$baseDN`, `$filter`, `$scope`), so future test authors
+  avoid accidental name collisions.
+
 ## [0.2.1] - 2026-04-25
 
 Hardening release: removes a latent script-load failure, fixes RFC
