@@ -44,7 +44,9 @@ jobs:
         working-directory: ad-ldap-query
         # RUN_LIVE_AD_TESTS is intentionally unset, so live tests SKIP
         # and the suite gates only offline correctness.
-        run: ./Test-AdLdapQueryHarness.ps1
+        # -Detailed prints per-test PASS/FAIL/SKIP rows inline so a CI
+        # failure shows the offending test directly in the workflow log.
+        run: ./Test-AdLdapQueryHarness.ps1 -Detailed
 
   offline-powershell-5-1:
     name: Windows PowerShell 5.1 (Windows, offline only)
@@ -59,4 +61,4 @@ jobs:
       - name: Run harness (offline only)
         shell: powershell
         working-directory: ad-ldap-query
-        run: ./Test-AdLdapQueryHarness.ps1
+        run: ./Test-AdLdapQueryHarness.ps1 -Detailed
