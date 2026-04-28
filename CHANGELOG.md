@@ -4,9 +4,17 @@ All notable changes to PSldap are documented here.
 
 ## [0.2.2] - 2026-04-27
 
-Regression-coverage release. Adds tests targeting the two fixes from
-0.2.1 that previously had no dedicated test, plus a small documentation
-clarification in the test harness.
+Regression-coverage and CI infrastructure release. Adds dedicated
+tests for the two fixes from 0.2.1 that previously had none, wires
+up GitHub Actions to gate merges on the test suite, and tightens
+test-harness hygiene.
+
+### Added
+
+- **GitHub Actions workflow** (`.github/workflows/tests.yml`). Runs
+  `run-tests.ps1 -Iterations 3` on `windows-latest` for every push to
+  `main` and every pull request targeting `main`. Gates merges on
+  test-suite green.
 
 ### Tests
 
@@ -28,6 +36,17 @@ clarification in the test harness.
   The pinned value catches algorithm changes, endianness regressions,
   and UTF-8 vs. UTF-16 encoding regressions without spawning a
   subprocess.
+- Added a `Describe 'Source-Code Checks'` block with a test asserting
+  `psldap.ps1` does not reference `[LinkedHashSet]`. The type doesn't
+  exist in .NET; a regression to it crashed CSV / tab output at
+  runtime in a previous version. Static check, no LDAP connection
+  required.
+
+### Changed
+
+- `run-tests.ps1` now `exit 1`s when any test fails (sum of failures
+  across all iterations). Previously the script always exited 0, so
+  CI couldn't gate on test failures.
 
 ### Documentation
 
