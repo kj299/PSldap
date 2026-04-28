@@ -1,22 +1,47 @@
 name: tests
 
+# Triggered only when test-relevant files change. Pure-docs commits
+# (CHANGELOG.md, README.md, ad-ldap-query/**) don't fire this workflow.
 on:
   push:
     branches: [main]
+    paths:
+      - 'psldap.ps1'
+      - 'psldap.Tests.ps1'
+      - 'run-tests.ps1'
+      - '.github/workflows/tests.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'psldap.ps1'
+      - 'psldap.Tests.ps1'
+      - 'run-tests.ps1'
+      - '.github/workflows/tests.yml'
 
 jobs:
-  pwsh-windows:
-    name: PowerShell 7 (Windows)
+  test:
+    # Matrix: both shells live on every windows-latest runner — `pwsh`
+    # is PowerShell 7+, `powershell` is Windows PowerShell 5.1. The
+    # project explicitly targets both (see e.g. the BOM fix in 0.2.1
+    # and the cross-process scramble determinism test, which were
+    # 5.1-specific).
+    name: ${{ matrix.label }} (Windows)
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shell: pwsh
+            label: PowerShell 7
+          - shell: powershell
+            label: Windows PowerShell 5.1
     steps:
       - uses: actions/checkout@v4
 
       - name: Show PowerShell version
-        shell: pwsh
+        shell: ${{ matrix.shell }}
         run: $PSVersionTable
 
       - name: Run test suite (3 iterations)
-        shell: pwsh
+        shell: ${{ matrix.shell }}
         run: ./run-tests.ps1 -Iterations 3

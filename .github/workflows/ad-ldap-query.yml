@@ -1,0 +1,50 @@
+name: ad-ldap-query (offline)
+
+# GitHub-hosted runners are NOT domain-joined and cannot reach
+# corporate Active Directory. This workflow runs ONLY the offline
+# tier of the harness — script load, function existence, parameter
+# validation, malformed-filter rejection. Live AD tests skip
+# automatically because RUN_LIVE_AD_TESTS is not set.
+#
+# To run the full suite (offline + live) on your own infrastructure,
+# copy the "B. Self-hosted runner" YAML out of ad-ldap-query/README.md
+# into a new workflow file, point `runs-on` at a domain-joined
+# self-hosted runner, and set RUN_LIVE_AD_TESTS=1 in `env`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ad-ldap-query/**'
+      - '.github/workflows/ad-ldap-query.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ad-ldap-query/**'
+      - '.github/workflows/ad-ldap-query.yml'
+
+jobs:
+  offline:
+    name: ${{ matrix.label }} (Windows, offline only)
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shell: pwsh
+            label: PowerShell 7
+          - shell: powershell
+            label: Windows PowerShell 5.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        shell: ${{ matrix.shell }}
+        run: $PSVersionTable
+
+      - name: Run harness (offline only)
+        shell: ${{ matrix.shell }}
+        working-directory: ad-ldap-query
+        # RUN_LIVE_AD_TESTS is intentionally unset, so live tests SKIP
+        # and the suite gates only offline correctness.
+        run: ./Test-AdLdapQueryHarness.ps1
