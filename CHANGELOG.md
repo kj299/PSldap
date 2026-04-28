@@ -2,6 +2,43 @@
 
 All notable changes to PSldap are documented here.
 
+## [Unreleased]
+
+CI coverage broadens. No production code changes; no new modules
+required (the project's no-install principle still holds).
+
+### Added
+
+- **Windows PowerShell 5.1 leg in `.github/workflows/tests.yml`.**
+  The `tests` workflow now matrixes `pwsh` (PowerShell 7+) and
+  `powershell` (Windows PowerShell 5.1). The project explicitly
+  targets both — the BOM fix in 0.2.1 and the cross-process scramble
+  determinism test from 0.2.2 are both 5.1-relevant — and CI
+  previously gated only PS 7. Both shells ship on every
+  `windows-latest` runner, so no module install or runner change is
+  needed.
+- **`.github/workflows/ad-ldap-query.yml`** — offline-only CI for the
+  `ad-ldap-query/` toolkit, mirroring the "A. GitHub-hosted runner"
+  YAML already documented in `ad-ldap-query/README.md`. Matrixes the
+  same two PowerShell shells. Live AD tests skip automatically on
+  GitHub-hosted runners (no `RUN_LIVE_AD_TESTS=1`); the offline tier
+  is now gated on every PR that touches `ad-ldap-query/**`.
+
+### Changed
+
+- **Path filters on `tests.yml`.** The workflow no longer fires for
+  unrelated changes (CHANGELOG-only commits, README typos,
+  `ad-ldap-query/**` edits). Filters: `psldap.ps1`,
+  `psldap.Tests.ps1`, `run-tests.ps1`, and `tests.yml` itself. Pure
+  efficiency — the suite still runs on every change that could
+  affect it.
+
+### Documentation
+
+- `ad-ldap-query/README.md` now notes that `LIVE_AD_TEST_RETRIES`
+  values `<= 0` and unparseable strings both clamp to "no retries"
+  (one attempt total).
+
 ## [0.2.2] - 2026-04-27
 
 Regression-coverage and CI infrastructure release. Adds dedicated

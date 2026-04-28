@@ -110,7 +110,7 @@ permissions. Cover:
 | Variable               | Meaning                                                                   |
 |------------------------|---------------------------------------------------------------------------|
 | `RUN_LIVE_AD_TESTS`    | `1` to enable live AD tests. Anything else leaves them skipped.           |
-| `LIVE_AD_TEST_RETRIES` | Integer N. Up to N additional retry attempts per live test on transient failures (server unavailable, RPC timeout, 0x80072030, etc.). Default `0`. |
+| `LIVE_AD_TEST_RETRIES` | Integer N. Up to N additional retry attempts per live test on transient failures (server unavailable, RPC timeout, 0x80072030, etc.). Default `0`. Values `<= 0` and unparseable strings both clamp to "no retries" (one attempt total). |
 
 ## GitHub Actions
 

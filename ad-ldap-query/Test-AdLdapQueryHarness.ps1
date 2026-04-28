@@ -307,7 +307,12 @@ Run-LiveTest 'Returned objects expose distinguishedName' {
 # ============================================================================
 # Output
 # ============================================================================
-$resultsArr = @($script:Results)
+# Use List<T>.ToArray() rather than @($list). The @() array-subexpression
+# operator on a [System.Collections.Generic.List[object]] throws
+# `ArgumentException: Argument types do not match` on both PowerShell 7
+# and Windows PowerShell 5.1 (under $ErrorActionPreference = 'Stop' it
+# becomes terminating). .ToArray() is unambiguous on both shells.
+$resultsArr = $script:Results.ToArray()
 $passed  = @($resultsArr | Where-Object { $_.Status -eq 'PASS' }).Count
 $failed  = @($resultsArr | Where-Object { $_.Status -eq 'FAIL' }).Count
 $skipped = @($resultsArr | Where-Object { $_.Status -eq 'SKIP' }).Count

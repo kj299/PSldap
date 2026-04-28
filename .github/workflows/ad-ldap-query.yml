@@ -1,0 +1,64 @@
+name: ad-ldap-query (offline)
+
+# GitHub-hosted runners are NOT domain-joined and cannot reach
+# corporate Active Directory. This workflow runs ONLY the offline
+# tier of the harness — script load, function existence, parameter
+# validation, malformed-filter rejection. Live AD tests skip
+# automatically because RUN_LIVE_AD_TESTS is not set.
+#
+# To run the full suite (offline + live) on your own infrastructure,
+# copy the "B. Self-hosted runner" YAML out of ad-ldap-query/README.md
+# into a new workflow file, point `runs-on` at a domain-joined
+# self-hosted runner, and set RUN_LIVE_AD_TESTS=1 in `env`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ad-ldap-query/**'
+      - '.github/workflows/ad-ldap-query.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ad-ldap-query/**'
+      - '.github/workflows/ad-ldap-query.yml'
+
+# Two explicit jobs rather than a strategy.matrix. See tests.yml
+# for the rationale: GitHub Actions rejects expressions in the
+# step-level `shell:` field, so we can't use `matrix.X` to pick
+# between `pwsh` and `powershell`.
+
+jobs:
+  offline-pwsh:
+    name: PowerShell 7 (Windows, offline only)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        shell: pwsh
+        run: $PSVersionTable
+
+      - name: Run harness (offline only)
+        shell: pwsh
+        working-directory: ad-ldap-query
+        # RUN_LIVE_AD_TESTS is intentionally unset, so live tests SKIP
+        # and the suite gates only offline correctness.
+        # -Detailed prints per-test PASS/FAIL/SKIP rows inline so a CI
+        # failure shows the offending test directly in the workflow log.
+        run: ./Test-AdLdapQueryHarness.ps1 -Detailed
+
+  offline-powershell-5-1:
+    name: Windows PowerShell 5.1 (Windows, offline only)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        shell: powershell
+        run: $PSVersionTable
+
+      - name: Run harness (offline only)
+        shell: powershell
+        working-directory: ad-ldap-query
+        run: ./Test-AdLdapQueryHarness.ps1 -Detailed

@@ -1,13 +1,34 @@
 name: tests
 
+# Triggered only when test-relevant files change. Pure-docs commits
+# (CHANGELOG.md, README.md, ad-ldap-query/**) don't fire this workflow.
 on:
   push:
     branches: [main]
+    paths:
+      - 'psldap.ps1'
+      - 'psldap.Tests.ps1'
+      - 'run-tests.ps1'
+      - '.github/workflows/tests.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'psldap.ps1'
+      - 'psldap.Tests.ps1'
+      - 'run-tests.ps1'
+      - '.github/workflows/tests.yml'
+
+# Two explicit jobs rather than a strategy.matrix. We tried
+# `matrix.include` with `shell: ${{ matrix.X }}` and GitHub Actions
+# rejected the expression in the step-level `shell:` field with
+# "Unrecognized named-value: 'matrix'" at workflow parse time.
+# Two static jobs are more verbose but unambiguously correct, and
+# the project explicitly targets both shells: PS 7 (BOM fix
+# baseline) and Windows PowerShell 5.1 (the BOM regression and the
+# scramble-determinism test were both 5.1-driven).
 
 jobs:
-  pwsh-windows:
+  test-pwsh:
     name: PowerShell 7 (Windows)
     runs-on: windows-latest
     steps:
@@ -19,4 +40,18 @@ jobs:
 
       - name: Run test suite (3 iterations)
         shell: pwsh
+        run: ./run-tests.ps1 -Iterations 3
+
+  test-powershell-5-1:
+    name: Windows PowerShell 5.1 (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        shell: powershell
+        run: $PSVersionTable
+
+      - name: Run test suite (3 iterations)
+        shell: powershell
         run: ./run-tests.ps1 -Iterations 3
