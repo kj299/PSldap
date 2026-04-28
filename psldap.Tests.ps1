@@ -91,6 +91,11 @@ function Reset-TestResults {
 # ============================================================================
 # psldap.ps1 short-circuits its Main Execution block when dot-sourced
 # ($MyInvocation.InvocationName -eq '.'), so dot-sourcing only loads helpers.
+#
+# Side effect: dot-sourcing also imports psldap.ps1's param() block as
+# variables in this scope (e.g. $hostname, $port, $baseDN, $filter, $scope).
+# Avoid those names when introducing new test-scoped variables, or shadow
+# them deliberately inside an `It` block.
 
 . (Join-Path $PSScriptRoot 'psldap.ps1')
 
@@ -136,6 +141,39 @@ Describe 'Test-LdapFilter' {
 
     It 'Returns true for wildcard filter' {
         Assert-True (Test-LdapFilter -Filter '(objectClass=*)')
+    }
+}
+
+# ============================================================================
+# Get-StableStringHash Tests
+# ============================================================================
+Describe 'Get-StableStringHash' {
+    It 'Returns 0 for empty string' {
+        Assert-Equal 0 (Get-StableStringHash -Value '')
+    }
+
+    It 'Returns 0 for $null input' {
+        Assert-Equal 0 (Get-StableStringHash -Value $null)
+    }
+
+    It 'Pins MD5-derived Int32 output for "hello"' {
+        # MD5("hello") = 5d41402abc4b2a76b9719d911017c592
+        # First 4 bytes -> BitConverter::ToInt32 (little-endian) = 0x2a40415d.
+        # Pinning the exact value catches:
+        #   1. any change to the hashing algorithm (e.g. revert to GetHashCode)
+        #   2. accidental endianness changes
+        #   3. UTF-8 vs. UTF-16 encoding regressions
+        # Assumes little-endian (true on every platform PowerShell runs on).
+        Assert-Equal 0x2a40415d (Get-StableStringHash -Value 'hello')
+    }
+
+    It 'Produces the same output across repeated calls in this process' {
+        # Within a single process this is also true of GetHashCode(), so this
+        # test alone does not catch the cross-process regression — see the
+        # Regression Tests block for that. Kept here as a basic sanity check.
+        $a = Get-StableStringHash -Value 'TestValue'
+        $b = Get-StableStringHash -Value 'TestValue'
+        Assert-Equal $a $b
     }
 }
 
@@ -749,5 +787,55 @@ Describe 'Edge Cases' {
         Assert-Equal 76 $lines[0].Length
         # second line: space + 75 chars = 76
         if ($lines[1]) { Assert-Equal ' ' $lines[1][0] }
+    }
+}
+
+# ============================================================================
+# Regression Tests
+# ----------------------------------------------------------------------------
+# Tests targeting specific past regressions. Failures here indicate that a
+# previously-fixed bug has come back.
+# ============================================================================
+Describe 'Regression Tests' {
+    It 'Write-SearchOutput writes UTF-8 without BOM to output file' {
+        # Regression: Out-File -Encoding UTF8 emits a BOM on Windows
+        # PowerShell 5.1, which RFC 2849 forbids and many CSV consumers
+        # mis-parse. Fixed by routing through [IO.File]::WriteAllText
+        # with UTF8Encoding($false).
+        $outPath = Join-Path $env:TEMP 'psldap_test_bom.ldif'
+        try {
+            $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('test') })
+            Write-SearchOutput -Entries $entries -Format 'LDIF' -WrapCol 76 -OutFile $outPath
+            $bytes = [System.IO.File]::ReadAllBytes($outPath)
+            Assert-True ($bytes.Length -ge 3) "Output file is too short to inspect for BOM"
+            $hasBom = ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+            Assert-False $hasBom "Output file unexpectedly contains UTF-8 BOM"
+        }
+        finally {
+            if (Test-Path $outPath) { Remove-Item $outPath -Force }
+        }
+    }
+
+    It 'Invoke-ScrambleValue is deterministic across separate PowerShell processes' {
+        # Regression: String.GetHashCode() is randomized per process on
+        # .NET Core / PowerShell 7+, so scrambled output differed across
+        # runs. Fixed by hashing through Get-StableStringHash (MD5).
+        # This test spawns a fresh PowerShell process and verifies the
+        # same input produces the same output. If anyone reverts to
+        # GetHashCode(), this assertion will fail under PS 7+.
+        $pwshExe = (Get-Process -Id $PID).Path
+        Assert-NotNull $pwshExe "Could not resolve current PowerShell executable"
+
+        $scriptPath = Join-Path $PSScriptRoot 'psldap.ps1'
+        $localResult = Invoke-ScrambleValue -Value 'TestValue123' -Seed 42
+
+        $inner = ". '$scriptPath'; Invoke-ScrambleValue -Value 'TestValue123' -Seed 42"
+        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($inner))
+        $remoteResult = (& $pwshExe -NoProfile -NoLogo -EncodedCommand $encoded | Out-String).Trim()
+        # Surface child-process failures with a clear message instead of
+        # letting the value comparison fail with "Expected X, Got ''".
+        Assert-Equal 0 $LASTEXITCODE "Child PowerShell process exited non-zero. Output: $remoteResult"
+
+        Assert-Equal $localResult $remoteResult "Scramble output differs across processes"
     }
 }
