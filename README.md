@@ -114,7 +114,12 @@ external module:
 .\run-tests.ps1 -Iterations 1  # quick smoke test
 ```
 
-On Windows you can also double-click [run-tests.bat](run-tests.bat).
+On Windows you can also use [run-tests.bat](run-tests.bat):
+
+```bat
+run-tests.bat                 REM defaults to -Iterations 3
+run-tests.bat -Iterations 1   REM forwards args to run-tests.ps1
+```
 
 ## License
 
