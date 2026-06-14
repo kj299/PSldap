@@ -54,6 +54,29 @@ Or just copy [psldap.ps1](psldap.ps1) anywhere on disk.
 
 Run `Get-Help .\psldap.ps1 -Detailed` for the full parameter reference.
 
+## Authentication
+
+By default — when no `-bindDN` / password is supplied — the script binds with
+**`AuthType::Negotiate` using the current Windows logon**. That means it queries
+Active Directory with the calling user's own credentials (Kerberos/NTLM via
+SSPI), exactly like the logged-on user. No password is prompted for, stored, or
+sent in plaintext, and no module or RSAT install is required.
+
+```powershell
+# Query the current user's domain with their own credentials (integrated auth)
+.\psldap.ps1 -hostname dc01.example.com `
+             -baseDN "dc=example,dc=com" `
+             -filter "(samAccountName=jdoe)"
+```
+
+Supplying `-bindDN` together with a password option (`-promptForBindPassword`,
+`-bindPassword`, or `-bindPasswordFile`) switches to explicit `Basic` auth with
+those credentials instead.
+
+> This integrated path targets on-premises Active Directory (and LDAP-enabled
+> managed domains / hybrid-synced environments). Cloud-only Microsoft Entra ID
+> has no LDAP endpoint and is not reachable this way.
+
 ## Output formats
 
 `LDIF` (default), `JSON`, `CSV`, `multi-valued-csv`, `tab-delimited`,

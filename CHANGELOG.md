@@ -35,6 +35,13 @@ required (the project's no-install principle still holds).
 
 ### Documentation
 
+- **`README.md` now has an "Authentication" section.** Documents that
+  the default bind (no `-bindDN` / password) uses `AuthType::Negotiate`
+  with the current Windows logon, so queries run against Active
+  Directory as the calling user (Kerberos/NTLM via SSPI) with no
+  module install and no plaintext password. Notes that supplying
+  `-bindDN` + a password option switches to explicit `Basic` auth, and
+  that the integrated path targets on-prem AD, not cloud-only Entra ID.
 - `ad-ldap-query/README.md` now notes that `LIVE_AD_TEST_RETRIES`
   values `<= 0` and unparseable strings both clamp to "no retries"
   (one attempt total).
