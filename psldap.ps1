@@ -92,7 +92,21 @@
 
 .PARAMETER outputFormat
     Output format: LDIF, JSON, CSV, multi-valued-csv, tab-delimited,
-    multi-valued-tab-delimited, dns-only, or values-only. Default: LDIF.
+    multi-valued-tab-delimited, delimited, multi-valued-delimited,
+    dns-only, or values-only. Default: LDIF.
+
+    The 'delimited' / 'multi-valued-delimited' formats emit one header row of
+    attribute names followed by one row per entry, with columns joined by the
+    -delimiter string. Fields containing the delimiter, a double-quote, or a
+    newline are CSV-style quoted, so the result pastes cleanly into Excel.
+
+.PARAMETER delimiter
+    Column delimiter for the 'delimited' / 'multi-valued-delimited' output
+    formats. Specifying -delimiter is enough to select delimited output:
+    when -outputFormat is not given explicitly, -delimiter implies
+    'delimited'. Defaults to a TAB when a delimited format is selected
+    without -delimiter (TAB is what Excel uses for clipboard paste).
+    Common choices: "`t" (tab), "," (comma), "|" (pipe), ";" (semicolon).
 
 .PARAMETER outputFile
     Path to write search results. If not specified, results go to standard output.
@@ -148,6 +162,14 @@
 
 .EXAMPLE
     .\psldap.ps1 -ldapURLFile ./urls.txt -outputFormat LDIF -continueOnError
+
+.EXAMPLE
+    # Tab-delimited columns, ready to paste straight into Excel
+    .\psldap.ps1 -filter "(objectClass=user)" -requestedAttribute cn,mail,department -delimiter "`t"
+
+.EXAMPLE
+    # Pipe-delimited, collapsing multi-valued attributes into one cell
+    .\psldap.ps1 -filter "(objectClass=group)" -requestedAttribute cn,member -outputFormat multi-valued-delimited -delimiter "|"
 #>
 
 [CmdletBinding()]
@@ -255,8 +277,11 @@ param (
 
     # Output
     [ValidateSet('LDIF', 'JSON', 'CSV', 'multi-valued-csv', 'tab-delimited',
-        'multi-valued-tab-delimited', 'dns-only', 'values-only')]
+        'multi-valued-tab-delimited', 'delimited', 'multi-valued-delimited',
+        'dns-only', 'values-only')]
     [string]$outputFormat = 'LDIF',
+
+    [string]$delimiter,
 
     [ValidateScript({
         if ($_) {
@@ -856,21 +881,44 @@ function Format-CsvField {
     return $Value
 }
 
-function Format-TabOutput {
+function Format-DelimitedField {
     <#
     .SYNOPSIS
-        Formats entries as tab-delimited output.
+        Escapes a single field for delimited output. Quotes (CSV-style, with
+        doubled inner quotes) when the value contains the delimiter, a
+        double-quote, or a line break — so the row stays aligned and pastes
+        cleanly into Excel regardless of which delimiter was chosen.
+    #>
+    param(
+        [string]$Value,
+        [string]$Delimiter
+    )
+
+    if ([string]::IsNullOrEmpty($Value)) { return '' }
+    if ($Value.Contains($Delimiter) -or $Value -match '["\r\n]') {
+        return '"' + ($Value -replace '"', '""') + '"'
+    }
+    return $Value
+}
+
+function Format-DelimitedOutput {
+    <#
+    .SYNOPSIS
+        Formats entries as delimiter-separated columns: one header row of
+        attribute names, then one row per entry. Used by the tab-delimited and
+        the generic 'delimited' output formats.
     #>
     param(
         [array]$Entries,
         [string[]]$Columns,
+        [string]$Delimiter = "`t",
         [switch]$MultiValued
     )
 
     $sb = [System.Text.StringBuilder]::new()
 
     # Header
-    [void]$sb.AppendLine($Columns -join "`t")
+    [void]$sb.AppendLine((($Columns | ForEach-Object { Format-DelimitedField -Value $_ -Delimiter $Delimiter }) -join $Delimiter))
 
     foreach ($entry in $Entries) {
         $row = @()
@@ -880,16 +928,31 @@ function Format-TabOutput {
                 $row += ''
             }
             elseif ($MultiValued) {
-                $row += ($vals -join '|')
+                $row += Format-DelimitedField -Value (($vals) -join '|') -Delimiter $Delimiter
             }
             else {
-                $row += $vals[0]
+                $row += Format-DelimitedField -Value ($vals[0]) -Delimiter $Delimiter
             }
         }
-        [void]$sb.AppendLine($row -join "`t")
+        [void]$sb.AppendLine($row -join $Delimiter)
     }
 
     return $sb.ToString()
+}
+
+function Format-TabOutput {
+    <#
+    .SYNOPSIS
+        Formats entries as tab-delimited output. Thin wrapper over
+        Format-DelimitedOutput with a TAB delimiter.
+    #>
+    param(
+        [array]$Entries,
+        [string[]]$Columns,
+        [switch]$MultiValued
+    )
+
+    return Format-DelimitedOutput -Entries $Entries -Columns $Columns -Delimiter "`t" -MultiValued:$MultiValued
 }
 
 function Format-DnsOnlyOutput {
@@ -934,6 +997,7 @@ function Write-SearchOutput {
         [array]$Entries,
         [string]$Format,
         [string[]]$Columns,
+        [string]$Delimiter = "`t",
         [string]$OutFile,
         [switch]$TeeToStdOut,
         [int]$WrapCol,
@@ -948,6 +1012,8 @@ function Write-SearchOutput {
         'multi-valued-csv' { Format-CsvOutput -Entries $Entries -Columns $Columns -MultiValued }
         'tab-delimited' { Format-TabOutput -Entries $Entries -Columns $Columns }
         'multi-valued-tab-delimited' { Format-TabOutput -Entries $Entries -Columns $Columns -MultiValued }
+        'delimited' { Format-DelimitedOutput -Entries $Entries -Columns $Columns -Delimiter $Delimiter }
+        'multi-valued-delimited' { Format-DelimitedOutput -Entries $Entries -Columns $Columns -Delimiter $Delimiter -MultiValued }
         'dns-only' { Format-DnsOnlyOutput -Entries $Entries }
         'values-only' { Format-ValuesOnlyOutput -Entries $Entries }
     }
@@ -1166,7 +1232,7 @@ function Invoke-SearchAndOutput {
     }
 
     $columns = @()
-    if ($script:outputFormat -in @('CSV', 'multi-valued-csv', 'tab-delimited', 'multi-valued-tab-delimited')) {
+    if ($script:outputFormat -in @('CSV', 'multi-valued-csv', 'tab-delimited', 'multi-valued-tab-delimited', 'delimited', 'multi-valued-delimited')) {
         if ($Attrs.Count -gt 0) {
             $columns = $Attrs
         }
@@ -1194,6 +1260,7 @@ function Invoke-SearchAndOutput {
         -Entries $transformedEntries `
         -Format $script:outputFormat `
         -Columns $columns `
+        -Delimiter $script:delimiter `
         -OutFile $currentOutFile `
         -TeeToStdOut:$script:teeResultsToStandardOut `
         -WrapCol $script:wrapColumn `
@@ -1253,6 +1320,30 @@ if ($teeResultsToStandardOut -and -not $outputFile) {
 
 if ($separateOutputFilePerSearch -and -not $outputFile) {
     Write-Warning "-separateOutputFilePerSearch has no effect without -outputFile."
+}
+
+# --- Resolve delimited output options ---
+# Specifying -delimiter is enough to select delimited output: when the caller
+# didn't pass an explicit -outputFormat, -delimiter implies 'delimited'.
+if ($PSBoundParameters.ContainsKey('delimiter') -and -not $PSBoundParameters.ContainsKey('outputFormat')) {
+    $outputFormat = 'delimited'
+}
+
+if ($outputFormat -in @('delimited', 'multi-valued-delimited')) {
+    if ($PSBoundParameters.ContainsKey('delimiter')) {
+        if ([string]::IsNullOrEmpty($delimiter)) {
+            Write-Error "-delimiter cannot be empty."
+            exit 1
+        }
+    }
+    else {
+        # No delimiter given for a delimited format: default to TAB, which is
+        # the column separator Excel expects on a clipboard paste.
+        $delimiter = "`t"
+    }
+}
+elseif ($PSBoundParameters.ContainsKey('delimiter')) {
+    Write-Warning "-delimiter has no effect with -outputFormat '$outputFormat'."
 }
 
 # --- Resolve hostname ---

@@ -9,6 +9,18 @@ required (the project's no-install principle still holds).
 
 ### Added
 
+- **`delimited` / `multi-valued-delimited` output formats with a
+  `-delimiter` parameter.** Emits a header row of attribute names plus
+  one row per entry, columns joined by a caller-chosen delimiter, for
+  output that pastes cleanly into Excel. Combine with `-filter` (which
+  LDAP filter) and `-requestedAttribute` (which columns). Passing
+  `-delimiter` alone implies the `delimited` format; a delimited format
+  without `-delimiter` defaults to TAB (Excel's clipboard-paste
+  separator). Fields containing the delimiter, a `"`, or a newline are
+  CSV-style quoted so columns stay aligned. The existing `tab-delimited`
+  formats now share this engine (`Format-DelimitedOutput`) and gain the
+  same quoting; `Format-TabOutput` is a thin TAB wrapper. Covered by new
+  `Format-DelimitedField` / `Format-DelimitedOutput` unit tests.
 - **Windows PowerShell 5.1 leg in `.github/workflows/tests.yml`.**
   The `tests` workflow now matrixes `pwsh` (PowerShell 7+) and
   `powershell` (Windows PowerShell 5.1). The project explicitly

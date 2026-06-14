@@ -80,11 +80,40 @@ those credentials instead.
 ## Output formats
 
 `LDIF` (default), `JSON`, `CSV`, `multi-valued-csv`, `tab-delimited`,
-`multi-valued-tab-delimited`, `dns-only`, `values-only`.
+`multi-valued-tab-delimited`, `delimited`, `multi-valued-delimited`,
+`dns-only`, `values-only`.
 
 LDIF output is RFC 2849-compliant: long lines wrap with leading-space
 continuation, values requiring it are Base64-encoded (including the
 `dn::` line when the DN contains characters that need encoding).
+
+### Custom delimiter (copy-paste into Excel)
+
+Pick the LDAP filter (`-filter`) and the columns you want (`-requestedAttribute`),
+then choose a delimiter. The `delimited` / `multi-valued-delimited` formats emit
+one header row of attribute names followed by one row per entry, columns joined
+by `-delimiter`:
+
+```powershell
+# Tab-separated — paste straight into a worksheet (TAB is Excel's paste delimiter)
+.\psldap.ps1 -filter "(objectClass=user)" `
+             -requestedAttribute cn,mail,department `
+             -delimiter "`t"
+
+# Pipe-separated, multi-valued attributes collapsed into a single cell
+.\psldap.ps1 -filter "(objectClass=group)" `
+             -requestedAttribute cn,member `
+             -outputFormat multi-valued-delimited -delimiter "|"
+```
+
+Notes:
+
+- Passing `-delimiter` alone is enough — when `-outputFormat` is omitted it
+  implies `delimited`. A delimited format without `-delimiter` defaults to TAB.
+- Fields containing the delimiter, a `"`, or a newline are CSV-style quoted
+  (inner quotes doubled), so columns stay aligned on paste.
+- `multi-valued-delimited` joins an attribute's multiple values with `|` inside
+  the cell; plain `delimited` keeps only the first value.
 
 File output is written as **UTF-8 without BOM** so downstream LDIF / CSV
 consumers don't choke on the byte-order mark that Windows PowerShell 5.1

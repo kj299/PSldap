@@ -520,6 +520,77 @@ Describe 'Format-TabOutput' {
 }
 
 # ============================================================================
+# Format-DelimitedField Tests
+# ============================================================================
+Describe 'Format-DelimitedField' {
+    It 'Returns empty string for null/empty' {
+        Assert-Equal '' (Format-DelimitedField -Value $null -Delimiter ',')
+        Assert-Equal '' (Format-DelimitedField -Value '' -Delimiter '|')
+    }
+
+    It 'Leaves plain values unquoted' {
+        Assert-Equal 'hello' (Format-DelimitedField -Value 'hello' -Delimiter ',')
+    }
+
+    It 'Quotes when the value contains the delimiter' {
+        Assert-Equal '"a|b"' (Format-DelimitedField -Value 'a|b' -Delimiter '|')
+        # A comma is NOT special when the delimiter is a pipe.
+        Assert-Equal 'a,b' (Format-DelimitedField -Value 'a,b' -Delimiter '|')
+    }
+
+    It 'Quotes and doubles embedded double-quotes' {
+        Assert-Equal '"say ""hi"""' (Format-DelimitedField -Value 'say "hi"' -Delimiter ',')
+    }
+
+    It 'Quotes when the value contains a newline' {
+        Assert-Equal "`"l1`nl2`"" (Format-DelimitedField -Value "l1`nl2" -Delimiter ',')
+    }
+}
+
+# ============================================================================
+# Format-DelimitedOutput Tests
+# ============================================================================
+Describe 'Format-DelimitedOutput' {
+    It 'Joins columns with the supplied delimiter' {
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('John'); mail = @('john@t.com') })
+        $lines = (Format-DelimitedOutput -Entries $entries -Columns @('cn','mail') -Delimiter '|') -split "`r?`n" | Where-Object { $_ }
+        Assert-Equal 'cn|mail' $lines[0]
+        Assert-Equal 'John|john@t.com' $lines[1]
+    }
+
+    It 'Defaults to a TAB delimiter' {
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('John') })
+        $lines = (Format-DelimitedOutput -Entries $entries -Columns @('cn')) -split "`r?`n" | Where-Object { $_ }
+        Assert-Equal 'cn' $lines[0]
+        Assert-Equal 'John' $lines[1]
+    }
+
+    It 'Quotes a field that contains the delimiter' {
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('Doe, John') })
+        $lines = (Format-DelimitedOutput -Entries $entries -Columns @('cn') -Delimiter ',') -split "`r?`n" | Where-Object { $_ }
+        Assert-Equal '"Doe, John"' $lines[1]
+    }
+
+    It 'Single-valued takes only the first value' {
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; mail = @('a@t.com','b@t.com') })
+        $lines = (Format-DelimitedOutput -Entries $entries -Columns @('mail') -Delimiter ',') -split "`r?`n" | Where-Object { $_ }
+        Assert-Equal 'a@t.com' $lines[1]
+    }
+
+    It 'Multi-valued joins values with a pipe inside the cell' {
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; mail = @('a@t.com','b@t.com') })
+        $lines = @((Format-DelimitedOutput -Entries $entries -Columns @('mail') -Delimiter ',' -MultiValued) -split "`r?`n" | Where-Object { $_ })
+        Assert-Equal 'a@t.com|b@t.com' $lines[1]
+    }
+
+    It 'Emits an empty cell for a missing attribute' {
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('John') })
+        $lines = (Format-DelimitedOutput -Entries $entries -Columns @('cn','mail') -Delimiter ',') -split "`r?`n" | Where-Object { $_ }
+        Assert-Equal 'John,' $lines[1]
+    }
+}
+
+# ============================================================================
 # Format-DnsOnlyOutput Tests
 # ============================================================================
 Describe 'Format-DnsOnlyOutput' {
