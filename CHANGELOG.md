@@ -47,6 +47,13 @@ required (the project's no-install principle still holds).
 
 ### Documentation
 
+- **`README.md` usage reference expanded.** Adds an "Available
+  delimiters" table (clarifying that `-delimiter` takes any string, with
+  the PowerShell syntax for tab/comma/pipe/semicolon/space/custom and a
+  note that fields are auto-quoted) and a grouped "Parameters" section
+  (connection/TLS, authentication, search, output, transformations &
+  flow control) with defaults and aliases, pointing to
+  `Get-Help -Detailed` for the full reference.
 - **`README.md` now has an "Authentication" section.** Documents that
   the default bind (no `-bindDN` / password) uses `AuthType::Negotiate`
   with the current Windows logon, so queries run against Active

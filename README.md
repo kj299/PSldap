@@ -115,9 +115,96 @@ Notes:
 - `multi-valued-delimited` joins an attribute's multiple values with `|` inside
   the cell; plain `delimited` keeps only the first value.
 
+#### Available delimiters
+
+`-delimiter` accepts **any string** — there is no fixed list. The table below
+shows the common choices and how to write them in PowerShell (note that a tab
+must be the backtick-escaped `` "`t" `` inside double quotes; the others are
+literal characters). Multi-character delimiters such as `" | "` or `"::"` work
+too.
+
+| Delimiter        | PowerShell syntax  | When to use                                                        |
+|------------------|--------------------|--------------------------------------------------------------------|
+| Tab              | `` -delimiter "`t" `` | **Recommended for Excel.** What Excel uses on a clipboard paste; the default when a delimited format is chosen without `-delimiter`. |
+| Comma            | `-delimiter ","`   | CSV-style. (Or just use `-outputFormat CSV`, which always uses commas.) |
+| Pipe             | `-delimiter "\|"`  | Handy when values may contain commas; also the inner separator for multi-valued cells. |
+| Semicolon        | `-delimiter ";"`   | The CSV column separator Excel expects in some locales (e.g. many European ones). |
+| Space            | `-delimiter " "`   | Simple eyeballing; values containing spaces get auto-quoted to stay aligned. |
+| Custom / literal | `-delimiter "::"`  | Any string is accepted, including multi-character separators.       |
+
+Because any field containing the delimiter is automatically quoted, you can pick
+whichever separator is least likely to appear in your data and the columns will
+still line up.
+
 File output is written as **UTF-8 without BOM** so downstream LDIF / CSV
 consumers don't choke on the byte-order mark that Windows PowerShell 5.1
 otherwise prepends.
+
+## Parameters
+
+A grouped summary of the most-used parameters. Run
+`Get-Help .\psldap.ps1 -Detailed` (or `-Full`) for the complete list,
+defaults, and per-parameter help.
+
+### Connection & TLS
+
+| Parameter        | Default                          | Notes                                                        |
+|------------------|----------------------------------|--------------------------------------------------------------|
+| `-hostname` (`-h`) | auto-detected domain, else `localhost` | LDAP server name or IP.                                |
+| `-port` (`-p`)   | `389` (`636` with `-useSSL`)     | Server port.                                                 |
+| `-useSSL`        | off                              | LDAPS (implicit TLS).                                         |
+| `-useStartTLS` (`-q`) | off                         | Upgrade a plain connection to TLS. Mutually exclusive with `-useSSL`. |
+| `-trustAll` (`-X`) | off                            | Skip certificate validation — **test servers only**.        |
+
+### Authentication
+
+| Parameter                  | Notes                                                              |
+|----------------------------|-------------------------------------------------------------------|
+| *(none)*                   | Default: integrated auth as the current Windows user (see [Authentication](#authentication)). |
+| `-bindDN` (`-D`)           | Bind DN for explicit (simple/Basic) auth.                         |
+| `-promptForBindPassword`   | Prompt interactively (`Read-Host -AsSecureString`).               |
+| `-bindPassword` (`-w`)     | Password as a `SecureString`.                                     |
+| `-bindPasswordFile` (`-j`) | Read the password from the first line of a file.                 |
+
+The three password options are mutually exclusive and each requires `-bindDN`.
+
+### Search
+
+| Parameter                  | Default            | Notes                                                          |
+|----------------------------|--------------------|----------------------------------------------------------------|
+| `-baseDN` (`-b`)           | derived from domain | Search base.                                                  |
+| `-filter`                  | `(objectClass=*)`  | LDAP filter. May be given multiple times for several searches. |
+| `-filterFile` (`-f`)       | —                  | File of filters, one per line (`#` comments ignored).          |
+| `-ldapURLFile`             | —                  | File of LDAP URLs, each defining base/scope/filter/attributes. |
+| `-requestedAttribute`      | all                | Attributes (columns) to return. Repeatable or comma-separated. |
+| `-scope` (`-s`)            | `sub`              | `base`, `one`, `sub`, or `subordinates`.                       |
+| `-sizeLimit` (`-z`)        | `0` (no limit)     | Max entries the server returns.                                |
+| `-timeLimitSeconds` (`-l`) | `0` (no limit)     | Per-search server time budget.                                 |
+| `-sortOrder`               | —                  | Server-side sort, e.g. `+sn,-givenName`.                       |
+| `-dereferencePolicy` (`-a`)| `never`            | `never`, `always`, `search`, or `find`.                        |
+
+### Output
+
+| Parameter                     | Default | Notes                                                       |
+|-------------------------------|---------|-------------------------------------------------------------|
+| `-outputFormat`               | `LDIF`  | See [Output formats](#output-formats).                      |
+| `-delimiter`                  | TAB (for delimited formats) | Column separator; see [Available delimiters](#available-delimiters). |
+| `-outputFile`                 | stdout  | Write results to a file (UTF-8, no BOM).                    |
+| `-teeResultsToStandardOut`    | off     | Write to both the file and the console.                     |
+| `-separateOutputFilePerSearch`| off     | One output file per filter when running several searches.   |
+| `-terse`                      | off     | Suppress summary lines; emit only entries.                  |
+
+### Transformations & flow control
+
+| Parameter             | Notes                                                                       |
+|-----------------------|-----------------------------------------------------------------------------|
+| `-excludeAttribute`   | Drop these attributes from output.                                          |
+| `-redactAttribute`    | Replace these values with `***REDACTED***` (see [Security notes](#security-notes)). |
+| `-scrambleAttribute`  | Deterministically scramble these values; `-scrambleRandomSeed` sets the seed. |
+| `-continueOnError` (`-c`) | Keep going after a failed search instead of stopping.                   |
+| `-dryRun` (`-n`)      | Show the searches that would run without sending them.                       |
+| `-requireMatch`       | Exit `1` if no entries matched.                                              |
+| `-countEntries`       | Set the exit code to the number of entries returned (capped at 255).        |
 
 ## Security notes
 
