@@ -253,7 +253,17 @@ external module:
 .\run-tests.ps1 -Iterations 1  # quick smoke test
 ```
 
-On Windows you can also double-click [run-tests.bat](run-tests.bat).
+On Windows you can also use [run-tests.bat](run-tests.bat):
+
+```bat
+run-tests.bat                 REM defaults to -Iterations 3
+run-tests.bat -Iterations 1   REM forwards args to run-tests.ps1
+```
+
+The wrapper detects `powershell.exe` (Windows PowerShell) or `pwsh.exe`
+(PowerShell 7+), forwards its arguments to `run-tests.ps1`, and returns the
+test process's exit code (so it works in CI), failing with a clear message if
+no PowerShell is found.
 
 ## License
 

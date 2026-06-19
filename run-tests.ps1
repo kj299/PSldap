@@ -7,6 +7,7 @@
     .\run-tests.ps1 -Iterations 3
 #>
 param(
+    [ValidateRange(1, [int]::MaxValue)]
     [int]$Iterations = 3
 )
 

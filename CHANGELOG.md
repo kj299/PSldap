@@ -9,6 +9,19 @@ required (the project's no-install principle still holds).
 
 ### Added
 
+- **`run-tests.bat` now works with either PowerShell and propagates the
+  exit code.** Detects `powershell.exe` (Windows PowerShell) or
+  `pwsh.exe` (PowerShell 7+), forwards its arguments to `run-tests.ps1`
+  (defaulting to `-Iterations 3` when none are given), returns the test
+  process's exit code so it can gate CI, and fails with a clear message
+  if no PowerShell is found. The shell detection uses `&&` on each
+  `where` check rather than reading `%ERRORLEVEL%` inside an `if/else`
+  block (which expands at parse time and would never reach the
+  `pwsh.exe` fallback). Reworks the idea from #16 with that bug fixed.
+- **`-Iterations` validation in `run-tests.ps1`.** Adds
+  `[ValidateRange(1, [int]::MaxValue)]` so non-positive iteration counts
+  are rejected up front instead of silently running zero iterations.
+  (From #16.)
 - **`delimited` / `multi-valued-delimited` output formats with a
   `-delimiter` parameter.** Emits a header row of attribute names plus
   one row per entry, columns joined by a caller-chosen delimiter, for
