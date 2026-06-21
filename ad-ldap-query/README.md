@@ -24,7 +24,7 @@ audit, drop into a CI pipeline, or hand to a junior engineer.
   it are unusable in those environments.
 - `System.DirectoryServices.DirectorySearcher` and
   `System.DirectoryServices.DirectoryEntry` are part of the .NET BCL
-  on every Windows PowerShell 5.x install. No install, no admin
+  on every Windows install that ships with PowerShell 7.2+. No install, no admin
   required.
 - Authentication is implicit Kerberos / GSSAPI via the calling user's
   logon token. **No plaintext credentials** are passed at any point.

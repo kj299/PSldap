@@ -156,15 +156,21 @@ Describe 'Get-StableStringHash' {
         Assert-Equal 0 (Get-StableStringHash -Value $null)
     }
 
-    It 'Pins MD5-derived Int32 output for "hello"' {
-        # MD5("hello") = 5d41402abc4b2a76b9719d911017c592
-        # First 4 bytes -> BitConverter::ToInt32 (little-endian) = 0x2a40415d.
+    It 'Pins SHA256-derived Int32 output for "hello"' {
+        # SHA256("hello") = 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+        # First 4 bytes -> BitConverter::ToInt32 (little-endian) = 0xba4df22c.
+        # 0xba4df22c interpreted as a signed Int32 = -1169722836. We pin the
+        # decimal form rather than the hex literal because PowerShell parses
+        # 0xba4df22c (> Int32.MaxValue) as Int64, and `Assert-Equal` would
+        # then compare Int64 (3,125,244,460) to Int32 (-1,169,722,836) and
+        # fail despite the bit-pattern being identical.
+        #
         # Pinning the exact value catches:
-        #   1. any change to the hashing algorithm (e.g. revert to GetHashCode)
+        #   1. any change to the hashing algorithm (e.g. swap back to MD5 or GetHashCode)
         #   2. accidental endianness changes
         #   3. UTF-8 vs. UTF-16 encoding regressions
         # Assumes little-endian (true on every platform PowerShell runs on).
-        Assert-Equal 0x2a40415d (Get-StableStringHash -Value 'hello')
+        Assert-Equal -1169722836 (Get-StableStringHash -Value 'hello')
     }
 
     It 'Produces the same output across repeated calls in this process' {

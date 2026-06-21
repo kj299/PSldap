@@ -18,14 +18,10 @@ on:
       - 'run-tests.ps1'
       - '.github/workflows/tests.yml'
 
-# Two explicit jobs rather than a strategy.matrix. We tried
-# `matrix.include` with `shell: ${{ matrix.X }}` and GitHub Actions
-# rejected the expression in the step-level `shell:` field with
-# "Unrecognized named-value: 'matrix'" at workflow parse time.
-# Two static jobs are more verbose but unambiguously correct, and
-# the project explicitly targets both shells: PS 7 (BOM fix
-# baseline) and Windows PowerShell 5.1 (the BOM regression and the
-# scramble-determinism test were both 5.1-driven).
+# PowerShell 7+ only (issue #15 Stage 2 dropped Windows PowerShell 5.1).
+# `Get-StableStringHash` now calls [SHA256]::HashData(), which is .NET 5+ /
+# PS 7.2+ only — running the suite on `powershell.exe` would throw
+# MissingMethodException at runtime.
 
 jobs:
   test-pwsh:
@@ -40,18 +36,4 @@ jobs:
 
       - name: Run test suite (3 iterations)
         shell: pwsh
-        run: ./run-tests.ps1 -Iterations 3
-
-  test-powershell-5-1:
-    name: Windows PowerShell 5.1 (Windows)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Show PowerShell version
-        shell: powershell
-        run: $PSVersionTable
-
-      - name: Run test suite (3 iterations)
-        shell: powershell
         run: ./run-tests.ps1 -Iterations 3

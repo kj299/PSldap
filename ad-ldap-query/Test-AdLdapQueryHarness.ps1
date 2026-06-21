@@ -44,7 +44,7 @@
     .\Test-AdLdapQueryHarness.ps1 -Json | Out-File results.json -Encoding utf8
 
 .NOTES
-    PS 5.x compatible. No CmdletBinding, no Pester, no external
+    Requires PowerShell 7.2+. No CmdletBinding, no Pester, no external
     modules. Exit code 0 = all pass (or skip), 1 = at least one FAIL.
 
     Optional env vars:
@@ -309,9 +309,9 @@ Run-LiveTest 'Returned objects expose distinguishedName' {
 # ============================================================================
 # Use List<T>.ToArray() rather than @($list). The @() array-subexpression
 # operator on a [System.Collections.Generic.List[object]] throws
-# `ArgumentException: Argument types do not match` on both PowerShell 7
-# and Windows PowerShell 5.1 (under $ErrorActionPreference = 'Stop' it
-# becomes terminating). .ToArray() is unambiguous on both shells.
+# `ArgumentException: Argument types do not match` on PowerShell 7 (under
+# $ErrorActionPreference = 'Stop' it becomes terminating). .ToArray() is
+# unambiguous.
 $resultsArr = $script:Results.ToArray()
 $passed  = @($resultsArr | Where-Object { $_.Status -eq 'PASS' }).Count
 $failed  = @($resultsArr | Where-Object { $_.Status -eq 'FAIL' }).Count

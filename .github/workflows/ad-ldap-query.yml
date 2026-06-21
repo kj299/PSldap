@@ -23,10 +23,8 @@ on:
       - 'ad-ldap-query/**'
       - '.github/workflows/ad-ldap-query.yml'
 
-# Two explicit jobs rather than a strategy.matrix. See tests.yml
-# for the rationale: GitHub Actions rejects expressions in the
-# step-level `shell:` field, so we can't use `matrix.X` to pick
-# between `pwsh` and `powershell`.
+# PowerShell 7+ only (issue #15 Stage 2 dropped Windows PowerShell 5.1
+# across the repo).
 
 jobs:
   offline-pwsh:
@@ -46,19 +44,4 @@ jobs:
         # and the suite gates only offline correctness.
         # -Detailed prints per-test PASS/FAIL/SKIP rows inline so a CI
         # failure shows the offending test directly in the workflow log.
-        run: ./Test-AdLdapQueryHarness.ps1 -Detailed
-
-  offline-powershell-5-1:
-    name: Windows PowerShell 5.1 (Windows, offline only)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Show PowerShell version
-        shell: powershell
-        run: $PSVersionTable
-
-      - name: Run harness (offline only)
-        shell: powershell
-        working-directory: ad-ldap-query
         run: ./Test-AdLdapQueryHarness.ps1 -Detailed
