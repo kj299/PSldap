@@ -39,7 +39,7 @@ All notable changes to PSldap are documented here.
   the change does not strengthen the scrambler's privacy properties,
   but the choice of algorithm now satisfies audit/scanner readings
   that flag MD5 by name. **Pinned regression test updated from
-  `0x2a40415d` (MD5) to `-1169722836` / `0xba4df22c` (SHA256).** The
+  `0x2a40415d` (MD5) to `-1169296852` / `0xba4df22c` (SHA256).** The
   cross-process determinism test still passes — the algorithm
   changed but the determinism property is preserved.
 - **Path filters on `tests.yml`.** The workflow no longer fires for
