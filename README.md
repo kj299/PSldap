@@ -8,7 +8,8 @@ scramble).
 
 ## Requirements
 
-- Windows PowerShell **5.1** (or PowerShell 7+).
+- **PowerShell 7.2 or newer.** Windows PowerShell 5.1 is no longer supported
+  (see CHANGELOG for the 0.3.0 release notes).
 - **No PowerShell modules to install.** The script uses only .NET BCL
   assemblies that ship with Windows
   (`System.DirectoryServices.Protocols`, `System.Net`).
@@ -137,8 +138,7 @@ whichever separator is least likely to appear in your data and the columns will
 still line up.
 
 File output is written as **UTF-8 without BOM** so downstream LDIF / CSV
-consumers don't choke on the byte-order mark that Windows PowerShell 5.1
-otherwise prepends.
+consumers don't choke on a byte-order mark.
 
 ## Parameters
 
@@ -218,9 +218,10 @@ The three password options are mutually exclusive and each requires `-bindDN`.
   servers with self-signed certs.
 - The `-redactAttribute` and `-scrambleAttribute` options let you share
   query output without exposing sensitive attribute values. Scrambling
-  is deterministic across runs (uses a stable MD5-derived hash, so
-  results are reproducible on both Windows PowerShell 5.1 and PowerShell
-  7+).
+  is deterministic across runs (uses a stable SHA256-derived hash, so
+  results are reproducible across PowerShell 7+ processes). **Note:
+  scrambled output for a given `(Value, Seed)` pair changed in 0.3.0
+  when the underlying hash moved from MD5 to SHA256.**
 
 ## ldapsearch parameter aliases
 

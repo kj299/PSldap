@@ -598,41 +598,27 @@ function ConvertTo-TransformedEntry {
     return $result
 }
 
-# ----------------------------------------------------------------------------
-# Cached MD5 instance for Get-StableStringHash.
-#
-# Option A from issue #15: reuse a single [MD5] instance across calls
-# instead of allocating one per call. ComputeHash(byte[]) is a one-shot
-# call that resets internal state, so per-call disposal isn't needed.
-# The instance lives for process lifetime; fine for a CLI tool that
-# exits cleanly.
-#
-# Caveat (single-threaded assumption): [HashAlgorithm] is not thread-safe.
-# PowerShell scripts run single-threaded by convention, but the cached
-# instance MUST NOT be used from multiple runspaces concurrently
-# (e.g. `ForEach-Object -Parallel`, runspace pools). If parallel scramble
-# is ever added, switch to per-runspace instances or move to Option B
-# (static `[SHA256]::HashData`) per issue #15.
-# ----------------------------------------------------------------------------
-$script:_md5Instance = $null
-
 function Get-StableStringHash {
     <#
     .SYNOPSIS
         Returns a stable Int32 hash of a string. Used instead of String.GetHashCode()
         because that is randomized per-process on .NET Core / PowerShell 7+,
         which would break cross-run determinism of scrambled values.
-        Uses MD5 (non-cryptographic use — just a stable mixer). Native to .NET, no module install.
+
+        Uses SHA256 (non-cryptographic use here — just a stable mixer; only the
+        first 4 bytes of the digest are kept and interpreted as a signed Int32).
+        Calls the static [SHA256]::HashData(byte[]) method (.NET 5+ /
+        PowerShell 7.2+), so there is no instance to allocate, no IDisposable
+        to track, and the call is inherently thread-safe.
+
+        Implements Option B from issue #15. Requires PowerShell 7.2+.
     #>
     param([string]$Value)
 
     if ([string]::IsNullOrEmpty($Value)) { return 0 }
 
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
-    if (-not $script:_md5Instance) {
-        $script:_md5Instance = [System.Security.Cryptography.MD5]::Create()
-    }
-    $hashBytes = $script:_md5Instance.ComputeHash($bytes)
+    $hashBytes = [System.Security.Cryptography.SHA256]::HashData($bytes)
     return [BitConverter]::ToInt32($hashBytes, 0)
 }
 
