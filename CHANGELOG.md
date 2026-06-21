@@ -4,7 +4,11 @@ All notable changes to PSldap are documented here.
 
 ## [Unreleased]
 
-> ⚠️ **BREAKING — this release will be `0.3.0` when cut.** Two
+_No changes yet._
+
+## [0.3.0] - 2026-06-21
+
+> ⚠️ **BREAKING.** Two
 > independent breaking changes; both are explicit choices documented
 > below.
 >
