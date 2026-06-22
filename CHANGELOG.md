@@ -4,7 +4,29 @@ All notable changes to PSldap are documented here.
 
 ## [Unreleased]
 
-_No changes yet._
+### Changed
+
+- **Eliminated O(n²) array-growth in all hot paths.** Five functions were
+  using `$array += item` inside loops, which copies the entire array on
+  every iteration. Replaced with `List[T]::new()` + `.Add()` + `.ToArray()`
+  in `Read-FiltersFromFile`, `Read-SearchSpecsFromLdapURLFile`,
+  `ConvertTo-TransformedEntry` (per-attribute value accumulation),
+  `Format-JsonOutput`, and `Invoke-SearchAndOutput`. The main-block
+  `$searchSpecs` loop accumulation was also converted. Public API and
+  return types are unchanged — all callers receive plain arrays.
+
+### Tests
+
+- **`Write-SearchOutput` format-dispatch coverage expanded.** Added six new
+  tests: JSON dispatch (parses output as JSON and checks `dn`), CSV dispatch
+  (header + data row), delimited dispatch with a custom delimiter (`|`),
+  values-only dispatch, LDIF terse dispatch (no `version: 1` header), and
+  the tee-to-stdout path (`-TeeToStdOut`). Previously only file-write and
+  dns-only were covered.
+- **Three new source-code regression guards** in the `Source-Code Checks`
+  block assert that `$transformedEntries +=`, `$filters +=`, and `$specs +=`
+  do not reappear in `psldap.ps1`, preventing an accidental revert of the
+  List-based hot-path fixes above.
 
 ## [0.3.0] - 2026-06-21
 

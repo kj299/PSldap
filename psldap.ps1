@@ -475,7 +475,7 @@ function Read-FiltersFromFile {
     #>
     param([string]$Path)
 
-    $filters = @()
+    $filters = [System.Collections.Generic.List[string]]::new()
     $lineNum = 0
     foreach ($line in (Get-Content -Path $Path)) {
         $lineNum++
@@ -485,10 +485,10 @@ function Read-FiltersFromFile {
                 Write-Warning "Skipping invalid filter at line ${lineNum}: $trimmed"
                 continue
             }
-            $filters += $trimmed
+            $filters.Add($trimmed)
         }
     }
-    return $filters
+    return $filters.ToArray()
 }
 
 function Read-SearchSpecsFromLdapURLFile {
@@ -499,7 +499,7 @@ function Read-SearchSpecsFromLdapURLFile {
     #>
     param([string]$Path)
 
-    $specs = @()
+    $specs = [System.Collections.Generic.List[hashtable]]::new()
     foreach ($line in (Get-Content -Path $Path)) {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
@@ -530,9 +530,9 @@ function Read-SearchSpecsFromLdapURLFile {
             scope      = $(if ($parts.Count -ge 3 -and $parts[2]) { $parts[2] } else { $null })
             filter     = $parsedFilter
         }
-        $specs += $spec
+        $specs.Add($spec)
     }
-    return $specs
+    return $specs.ToArray()
 }
 
 function ConvertTo-TransformedEntry {
@@ -561,17 +561,18 @@ function ConvertTo-TransformedEntry {
             continue
         }
 
-        $values = @()
+        $valueList = [System.Collections.Generic.List[string]]::new()
         $attr = $Entry.Attributes[$attrName]
         for ($i = 0; $i -lt $attr.Count; $i++) {
             $val = $attr[$i]
             if ($val -is [byte[]]) {
-                $values += [Convert]::ToBase64String($val)
+                $valueList.Add([Convert]::ToBase64String($val))
             }
             else {
-                $values += $val.ToString()
+                $valueList.Add($val.ToString())
             }
         }
+        $values = $valueList.ToArray()
 
         # Redact check
         if ($RedactAttributes -and ($RedactAttributes | Where-Object { $_.ToLower() -eq $attrNameLower })) {
@@ -777,7 +778,7 @@ function Format-JsonOutput {
     #>
     param([array]$Entries)
 
-    $objects = @()
+    $objects = [System.Collections.Generic.List[PSCustomObject]]::new()
     foreach ($entry in $Entries) {
         $obj = [ordered]@{ dn = $entry.dn }
         foreach ($key in $entry.Keys) {
@@ -790,7 +791,7 @@ function Format-JsonOutput {
                 $obj[$key] = $vals
             }
         }
-        $objects += [PSCustomObject]$obj
+        $objects.Add([PSCustomObject]$obj)
     }
 
     if ($objects.Count -eq 0) {
@@ -1191,15 +1192,15 @@ function Invoke-SearchAndOutput {
         -DryRunFlag:$script:dryRun `
         -RateLimit $script:ratePerSecond
 
-    $transformedEntries = @()
+    $transformedEntries = [System.Collections.Generic.List[object]]::new()
     foreach ($rawEntry in $rawEntries) {
-        $transformedEntries += ConvertTo-TransformedEntry `
+        $transformedEntries.Add((ConvertTo-TransformedEntry `
             -Entry $rawEntry `
             -ExcludeAttributes $script:excludeAttribute `
             -RedactAttributes $script:redactAttribute `
             -HideRedactedCount:$script:hideRedactedValueCount `
             -ScrambleAttributes $script:scrambleAttribute `
-            -ScrambleSeed $script:scrambleRandomSeed
+            -ScrambleSeed $script:scrambleRandomSeed))
     }
 
     $columns = @()
@@ -1353,20 +1354,19 @@ if (-not $baseDN) {
 }
 
 # --- Build search specs ---
-$searchSpecs = @()
+$searchSpecs = [System.Collections.Generic.List[hashtable]]::new()
 
 if ($ldapURLFile) {
-    $searchSpecs += Read-SearchSpecsFromLdapURLFile -Path $ldapURLFile
+    foreach ($s in (Read-SearchSpecsFromLdapURLFile -Path $ldapURLFile)) { $searchSpecs.Add($s) }
 }
 elseif ($filterFile) {
-    $fileFilters = Read-FiltersFromFile -Path $filterFile
-    foreach ($ff in $fileFilters) {
-        $searchSpecs += @{
+    foreach ($ff in (Read-FiltersFromFile -Path $filterFile)) {
+        $searchSpecs.Add(@{
             baseDN     = $null
             attributes = $null
             scope      = $null
             filter     = $ff
-        }
+        })
     }
 }
 
@@ -1376,23 +1376,23 @@ if ($filter) {
             Write-Error "Invalid LDAP filter syntax: $f"
             exit 1
         }
-        $searchSpecs += @{
+        $searchSpecs.Add(@{
             baseDN     = $null
             attributes = $null
             scope      = $null
             filter     = $f
-        }
+        })
     }
 }
 
 # Default filter if nothing specified
 if ($searchSpecs.Count -eq 0) {
-    $searchSpecs += @{
+    $searchSpecs.Add(@{
         baseDN     = $null
         attributes = $null
         scope      = $null
         filter     = '(objectClass=*)'
-    }
+    })
 }
 
 # --- Validate countEntries with multiple searches ---
