@@ -766,6 +766,54 @@ Describe 'Write-SearchOutput' {
         $result = Write-SearchOutput -Entries $entries -Format 'dns-only' -WrapCol 76
         Assert-Match ($result -join '') 'cn=test,dc=com'
     }
+
+    It 'Dispatches to JSON format and returns valid JSON' {
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('test') })
+        $result = Write-SearchOutput -Entries $entries -Format 'JSON' -WrapCol 76
+        $parsed = @($result | ConvertFrom-Json)
+        Assert-Equal 1 $parsed.Count
+        Assert-Equal 'cn=test,dc=com' $parsed[0].dn
+    }
+
+    It 'Dispatches to CSV format with correct header and row' {
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('Alice'); mail = @('alice@example.com') })
+        $lines = (Write-SearchOutput -Entries $entries -Format 'CSV' -Columns @('cn','mail') -WrapCol 76) -split "`r?`n" | Where-Object { $_ }
+        Assert-Equal 'cn,mail' $lines[0]
+        Assert-Equal 'Alice,alice@example.com' $lines[1]
+    }
+
+    It 'Dispatches to delimited format with a custom delimiter' {
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('Bob'); dept = @('Eng') })
+        $lines = (Write-SearchOutput -Entries $entries -Format 'delimited' -Columns @('cn','dept') -Delimiter '|' -WrapCol 76) -split "`r?`n" | Where-Object { $_ }
+        Assert-Equal 'cn|dept' $lines[0]
+        Assert-Equal 'Bob|Eng' $lines[1]
+    }
+
+    It 'Dispatches to values-only format' {
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('Charlie') })
+        $result = Write-SearchOutput -Entries $entries -Format 'values-only' -WrapCol 76
+        Assert-Match ($result -join '') 'Charlie'
+    }
+
+    It 'Dispatches to LDIF terse format (no version header)' {
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('test') })
+        $result = (Write-SearchOutput -Entries $entries -Format 'LDIF' -WrapCol 76 -Terse) -join ''
+        Assert-NotMatch $result 'version: 1'
+        Assert-Match $result 'dn: cn=test,dc=com'
+    }
+
+    It 'Tees output to stdout when -TeeToStdOut and file path both given' {
+        $outPath = Join-Path $env:TEMP 'psldap_test_tee.ldif'
+        try {
+            $entries = @([ordered]@{ dn = 'cn=tee,dc=com'; cn = @('tee') })
+            $stdout = Write-SearchOutput -Entries $entries -Format 'LDIF' -WrapCol 76 -OutFile $outPath -TeeToStdOut
+            Assert-True (Test-Path $outPath)
+            Assert-Match ($stdout -join '') 'cn=tee,dc=com'
+        }
+        finally {
+            if (Test-Path $outPath) { Remove-Item $outPath -Force }
+        }
+    }
 }
 
 # ============================================================================
@@ -819,6 +867,27 @@ Describe 'Source-Code Checks' {
         $scriptPath = Join-Path $PSScriptRoot 'psldap.ps1'
         $content = Get-Content -Path $scriptPath -Raw
         Assert-NotMatch $content '\[(System\.Collections\.Generic\.)?LinkedHashSet'
+    }
+
+    It 'Invoke-SearchAndOutput accumulates transformed entries with List.Add, not += (O(n) growth)' {
+        # Regression guard: using $transformedEntries += in a loop creates a new
+        # array on every iteration, making entry processing O(n^2). The fix is
+        # List[object]::new() + .Add(). This check ensures the fix is not reverted.
+        $scriptPath = Join-Path $PSScriptRoot 'psldap.ps1'
+        $content = Get-Content -Path $scriptPath -Raw
+        Assert-NotMatch $content '\$transformedEntries\s*\+='
+    }
+
+    It 'Read-FiltersFromFile accumulates filters with List.Add, not += (O(n) growth)' {
+        $scriptPath = Join-Path $PSScriptRoot 'psldap.ps1'
+        $content = Get-Content -Path $scriptPath -Raw
+        Assert-NotMatch $content '\$filters\s*\+='
+    }
+
+    It 'Read-SearchSpecsFromLdapURLFile accumulates specs with List.Add, not += (O(n) growth)' {
+        $scriptPath = Join-Path $PSScriptRoot 'psldap.ps1'
+        $content = Get-Content -Path $scriptPath -Raw
+        Assert-NotMatch $content '\$specs\s*\+='
     }
 }
 
