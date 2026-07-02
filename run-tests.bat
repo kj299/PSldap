@@ -1,18 +1,15 @@
 @echo off
 setlocal
 
-REM Prefer Windows PowerShell; fall back to PowerShell 7 (pwsh) if it isn't
-REM present. Each `where` is gated with `&&` so the check uses that command's
-REM own exit code at run time -- reading %ERRORLEVEL% inside an if/else block
-REM expands at parse time and would always see the first check's result.
-set "PS_CMD="
-where powershell.exe >nul 2>&1 && set "PS_CMD=powershell.exe"
-if not defined PS_CMD (
-  where pwsh.exe >nul 2>&1 && set "PS_CMD=pwsh.exe"
-)
-
-if not defined PS_CMD (
-  echo ERROR: Neither powershell.exe nor pwsh.exe was found in PATH.
+REM The test suite requires PowerShell 7.2+ (psldap.ps1 uses
+REM [SHA256]::HashData(), .NET 5+ only — see CHANGELOG 0.3.0). Windows
+REM PowerShell 5.1 (powershell.exe) would fail the suite with
+REM MissingMethodException, so only pwsh.exe is accepted.
+where pwsh.exe >nul 2>&1
+if errorlevel 1 (
+  echo ERROR: pwsh.exe ^(PowerShell 7.2+^) was not found in PATH.
+  echo The test suite requires PowerShell 7.2 or newer; Windows PowerShell
+  echo 5.1 is not supported. Install from https://aka.ms/powershell
   endlocal
   exit /b 1
 )
@@ -22,7 +19,7 @@ REM the caller passed straight through to run-tests.ps1.
 set "SCRIPT_ARGS=%*"
 if "%SCRIPT_ARGS%"=="" set "SCRIPT_ARGS=-Iterations 3"
 
-"%PS_CMD%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0run-tests.ps1" %SCRIPT_ARGS%
+pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0run-tests.ps1" %SCRIPT_ARGS%
 set "TEST_EXIT=%ERRORLEVEL%"
 
 endlocal & exit /b %TEST_EXIT%

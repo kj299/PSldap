@@ -4,8 +4,58 @@ All notable changes to PSldap are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Single-valued scrambled attributes were truncated to their first
+  character in CSV, JSON, and delimited output.** The scramble branch in
+  `ConvertTo-TransformedEntry` piped one value through `ForEach-Object`
+  without `@()`, collapsing `string[]` to a scalar string; the formatters
+  then indexed `$vals[0]` — the first *character* of the string. Fixed at
+  the source (`@()` around the pipeline) and defensively in
+  `Format-CsvOutput` / `Format-DelimitedOutput` / `Format-JsonOutput`
+  (`@($entry[$col])`). LDIF and values-only were unaffected. Covered by a
+  new regression test.
+- **`run-tests.bat` preferred `powershell.exe`, which cannot run the suite
+  since 0.3.0.** Windows PowerShell 5.1 fails `Get-StableStringHash` with
+  `MissingMethodException`, and `powershell.exe` exists on effectively
+  every Windows machine, so the wrapper always picked the broken shell.
+  It now requires `pwsh.exe` and fails with a clear message pointing at
+  the PowerShell 7.2+ requirement instead of half-running a red suite.
+- **A UTF-8 BOM in a `-bindPasswordFile` became part of the password.**
+  U+FEFF is not whitespace, so the whitespace trim kept a BOM written by
+  Notepad or Windows PowerShell's `Out-File` as the password's first
+  character. `Get-BindCredential` now skips an `EF BB BF` prefix.
+  Covered by a new regression test.
+- **Redacting a zero-valued attribute fabricated two phantom values.**
+  With `-redactAttribute` on an attribute returned with no values (e.g.
+  under `-typesOnly`), `1..$values.Count` evaluated `1..0` — a
+  *descending* range — emitting `***REDACTED1***` and `***REDACTED0***`.
+  Zero-valued attributes now stay empty.
+- **`-sizeLimit` could overshoot and server-enforced limits discarded
+  partial results.** The paging loop appended whole pages, so output
+  could exceed `-sizeLimit` by up to a page; results are now trimmed to
+  exactly the limit. And when the server enforces a size/time limit,
+  `SendRequest` throws `DirectoryOperationException` — the entries
+  already received were thrown away with it. `Invoke-LdapSearch` now
+  keeps the partial results attached to the exception's response and
+  warns (matching ldapsearch behavior).
+- **Test suite now runs on Linux/macOS.** Tests hardcoded
+  `$env:TEMP`, which exists only on Windows — 11 tests failed with
+  "Cannot bind argument to parameter 'Path'" elsewhere. Replaced with
+  `[System.IO.Path]::GetTempPath()`.
+
 ### Changed
 
+- **`Test-LdapFilter` rejects `()` and top-level sibling filters.**
+  Balanced-paren checking alone accepted `()` and `(a=b)(c=d)`, letting
+  malformed filters travel to the server before failing. Depth may now
+  only return to zero at the final character, and empty parens are
+  rejected.
+- **`-bindDN` without a password option now warns.** It was silently
+  ignored — the bind proceeded as the current Windows user via Negotiate,
+  which is surprising for ldapsearch users, where `-D` alone means a
+  simple bind. A warning now says the bind DN is unused and names the
+  three password options.
 - **Eliminated O(n²) array-growth in all hot paths.** Five functions were
   using `$array += item` inside loops, which copies the entire array on
   every iteration. Replaced with `List[T]::new()` + `.Add()` + `.ToArray()`
@@ -15,8 +65,24 @@ All notable changes to PSldap are documented here.
   `$searchSpecs` loop accumulation was also converted. Public API and
   return types are unchanged — all callers receive plain arrays.
 
+### Documentation
+
+- README quick start no longer calls the default bind "anonymous" — it is
+  integrated (Negotiate) auth as the current user, as the Authentication
+  section already said.
+- README testing section reflects the pwsh-only `run-tests.bat`.
+- `-scope` help documents that `subordinates` is approximated as a
+  subtree search.
+- `Get-BindCredential` synopsis corrected (returns `NetworkCredential`,
+  not `PSCredential`); stale "every Windows PowerShell install" wording
+  in `ad-ldap-query/Invoke-AdLdapQuery.ps1` updated for the 5.1 drop.
+
 ### Tests
 
+- **New regression tests** for the scalar-truncation fix (formatters emit
+  the full value for a scalar attribute), the BOM-in-password-file fix
+  (`Get-BindCredential` strips `EF BB BF`), and the stricter
+  `Test-LdapFilter` (rejects `()`, `(a=b)(c=d)`, and `(&(a=b)())`).
 - **`Write-SearchOutput` format-dispatch coverage expanded.** Added six new
   tests: JSON dispatch (parses output as JSON and checks `dn`), CSV dispatch
   (header + data row), delimited dispatch with a custom delimiter (`|`),

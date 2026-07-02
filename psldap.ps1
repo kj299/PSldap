@@ -46,6 +46,9 @@
 
 .PARAMETER scope
     The search scope: base, one, sub, or subordinates. Default: sub.
+    Note: 'subordinates' is approximated as a subtree search (the .NET
+    SearchScope enum has no subordinate-subtree value), so the base entry
+    itself is included in results.
 
 .PARAMETER sizeLimit
     Maximum number of entries the server should return. 0 = no limit.
@@ -342,8 +345,9 @@ function Get-BindCredential {
     <#
     .SYNOPSIS
         Resolves bind credentials from the various input options.
-        Returns a PSCredential or $null. Passwords are handled as SecureString
-        throughout and never held in plaintext longer than necessary.
+        Returns a NetworkCredential or $null. Passwords are handled as
+        SecureString throughout and never held in plaintext longer than
+        necessary.
     #>
     [SecureString]$securePass = $null
 
@@ -355,16 +359,24 @@ function Get-BindCredential {
         $securePass = [System.Security.SecureString]::new()
         $fileBytes = [System.IO.File]::ReadAllBytes($script:bindPasswordFile)
         try {
+            # Skip a UTF-8 BOM (EF BB BF). Notepad and Windows PowerShell's
+            # Out-File write one; U+FEFF is NOT whitespace, so the trim below
+            # would otherwise leave it as the password's first character.
+            $lineStart = 0
+            if ($fileBytes.Length -ge 3 -and
+                $fileBytes[0] -eq 0xEF -and $fileBytes[1] -eq 0xBB -and $fileBytes[2] -eq 0xBF) {
+                $lineStart = 3
+            }
             # Find first line (stop at CR or LF)
             $lineEnd = $fileBytes.Length
-            for ($i = 0; $i -lt $fileBytes.Length; $i++) {
+            for ($i = $lineStart; $i -lt $fileBytes.Length; $i++) {
                 if ($fileBytes[$i] -eq 0x0A -or $fileBytes[$i] -eq 0x0D) {
                     $lineEnd = $i
                     break
                 }
             }
             # Trim leading/trailing whitespace, decode as UTF-8, append char by char
-            $lineChars = [System.Text.Encoding]::UTF8.GetChars($fileBytes, 0, $lineEnd)
+            $lineChars = [System.Text.Encoding]::UTF8.GetChars($fileBytes, $lineStart, $lineEnd - $lineStart)
             $trimStart = 0
             $trimEnd = $lineChars.Length - 1
             while ($trimStart -le $trimEnd -and [char]::IsWhiteSpace($lineChars[$trimStart])) { $trimStart++ }
@@ -457,12 +469,17 @@ function Test-LdapFilter {
     if ([string]::IsNullOrWhiteSpace($Filter)) { return $false }
     if ($Filter[0] -ne '(') { return $false }
     if ($Filter[-1] -ne ')') { return $false }
+    if ($Filter.Contains('()')) { return $false }
 
     $depth = 0
-    foreach ($ch in $Filter.ToCharArray()) {
+    for ($i = 0; $i -lt $Filter.Length; $i++) {
+        $ch = $Filter[$i]
         if ($ch -eq '(') { $depth++ }
         elseif ($ch -eq ')') { $depth-- }
         if ($depth -lt 0) { return $false }
+        # Depth may only return to 0 at the very end — otherwise the string
+        # is two sibling filters like '(a=b)(c=d)', not one filter.
+        if ($depth -eq 0 -and $i -lt $Filter.Length - 1) { return $false }
     }
     return ($depth -eq 0)
 }
@@ -574,13 +591,12 @@ function ConvertTo-TransformedEntry {
         }
         $values = $valueList.ToArray()
 
-        # Redact check
+        # Redact check. An attribute with zero values (e.g. under -typesOnly)
+        # stays empty — `1..0` is a DESCENDING range in PowerShell and would
+        # fabricate two phantom values.
         if ($RedactAttributes -and ($RedactAttributes | Where-Object { $_.ToLower() -eq $attrNameLower })) {
-            if ($HideRedactedCount) {
-                $values = @('***REDACTED***')
-            }
-            else {
-                if ($values.Count -eq 1) {
+            if ($values.Count -gt 0) {
+                if ($HideRedactedCount -or $values.Count -eq 1) {
                     $values = @('***REDACTED***')
                 }
                 else {
@@ -590,7 +606,10 @@ function ConvertTo-TransformedEntry {
         }
         # Scramble check
         elseif ($ScrambleAttributes -and ($ScrambleAttributes | Where-Object { $_.ToLower() -eq $attrNameLower })) {
-            $values = $values | ForEach-Object { Invoke-ScrambleValue -Value $_ -Seed $ScrambleSeed }
+            # @() keeps a single scrambled value as string[] — a bare pipeline
+            # collapses one output to a scalar string, and the CSV/JSON/
+            # delimited formatters would then index its first CHARACTER.
+            $values = @($values | ForEach-Object { Invoke-ScrambleValue -Value $_ -Seed $ScrambleSeed })
         }
 
         $result[$attrName] = $values
@@ -783,7 +802,9 @@ function Format-JsonOutput {
         $obj = [ordered]@{ dn = $entry.dn }
         foreach ($key in $entry.Keys) {
             if ($key -eq 'dn') { continue }
-            $vals = $entry[$key]
+            # @() so a scalar value (e.g. a plain string) is treated as one
+            # value, not indexed by character below.
+            $vals = @($entry[$key])
             if ($vals.Count -eq 1) {
                 $obj[$key] = $vals[0]
             }
@@ -822,7 +843,8 @@ function Format-CsvOutput {
     foreach ($entry in $Entries) {
         $row = @()
         foreach ($col in $Columns) {
-            $vals = $entry[$col]
+            # @() so a scalar value is one field, not indexed by character.
+            $vals = @($entry[$col])
             if (-not $vals) {
                 $row += ''
             }
@@ -895,7 +917,8 @@ function Format-DelimitedOutput {
     foreach ($entry in $Entries) {
         $row = @()
         foreach ($col in $Columns) {
-            $vals = $entry[$col]
+            # @() so a scalar value is one field, not indexed by character.
+            $vals = @($entry[$col])
             if (-not $vals) {
                 $row += ''
             }
@@ -1124,7 +1147,27 @@ function Invoke-LdapSearch {
             $stopwatch.Restart()
         }
 
-        $response = $Connection.SendRequest($request)
+        try {
+            $response = $Connection.SendRequest($request)
+        }
+        catch [System.DirectoryServices.Protocols.DirectoryOperationException] {
+            # A server-enforced size or time limit surfaces as a thrown
+            # exception with the partial results attached to its Response.
+            # Keep them (like ldapsearch does) instead of discarding the
+            # entries already received.
+            $errResponse = $_.Exception.Response
+            $resultCode = $errResponse.ResultCode
+            if ($errResponse -is [System.DirectoryServices.Protocols.SearchResponse] -and
+                ($resultCode -eq [System.DirectoryServices.Protocols.ResultCode]::SizeLimitExceeded -or
+                 $resultCode -eq [System.DirectoryServices.Protocols.ResultCode]::TimeLimitExceeded)) {
+                foreach ($entry in $errResponse.Entries) {
+                    $allEntries.Add($entry)
+                }
+                Write-Warning "Server reported ${resultCode}; returning the $($allEntries.Count) entries received."
+                break
+            }
+            throw
+        }
 
         if ($response -isnot [System.DirectoryServices.Protocols.SearchResponse]) {
             Write-Error "Unexpected response type: $($response.GetType().Name)"
@@ -1155,6 +1198,12 @@ function Invoke-LdapSearch {
         if ($MaxResults -gt 0 -and $allEntries.Count -ge $MaxResults) {
             break
         }
+    }
+
+    # The loop appends whole pages, so the last page can overshoot the
+    # requested size limit — trim to exactly MaxResults.
+    if ($MaxResults -gt 0 -and $allEntries.Count -gt $MaxResults) {
+        $allEntries = $allEntries.GetRange(0, $MaxResults)
     }
 
     return $allEntries
@@ -1273,6 +1322,12 @@ if ($credOptionCount -gt 1) {
 if ($credOptionCount -gt 0 -and -not $bindDN) {
     Write-Error "-bindDN is required when using -bindPassword, -bindPasswordFile, or -promptForBindPassword."
     exit 1
+}
+
+if ($bindDN -and $credOptionCount -eq 0) {
+    Write-Warning ("-bindDN was specified without a password option and will be IGNORED. " +
+        "The bind will use integrated (Negotiate) auth as the current user. " +
+        "Add -promptForBindPassword, -bindPassword, or -bindPasswordFile to bind as '$bindDN'.")
 }
 
 # --- Validate SSL/TLS options ---
