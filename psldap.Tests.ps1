@@ -12,6 +12,10 @@
 $script:TestResults = @{ Passed = 0; Failed = 0; Errors = @() }
 $script:CurrentDescribe = ''
 
+# Portable temp dir: $env:TEMP exists only on Windows; GetTempPath() works
+# everywhere PowerShell 7.2+ runs (Windows, Linux, macOS).
+$script:TestTempDir = [System.IO.Path]::GetTempPath()
+
 function Describe {
     param([string]$Name, [scriptblock]$Body)
     $script:CurrentDescribe = $Name
@@ -141,6 +145,20 @@ Describe 'Test-LdapFilter' {
 
     It 'Returns true for wildcard filter' {
         Assert-True (Test-LdapFilter -Filter '(objectClass=*)')
+    }
+
+    It 'Returns false for empty parens' {
+        Assert-False (Test-LdapFilter -Filter '()')
+    }
+
+    It 'Returns false for two sibling filters without a combinator' {
+        # '(a=b)(c=d)' is two filters concatenated, not one — a server would
+        # reject it; catching it locally preserves the fail-fast intent.
+        Assert-False (Test-LdapFilter -Filter '(a=b)(c=d)')
+    }
+
+    It 'Returns false for AND filter containing empty parens' {
+        Assert-False (Test-LdapFilter -Filter '(&(a=b)())')
     }
 }
 
@@ -685,7 +703,7 @@ Describe 'Get-SortControls' {
 # ============================================================================
 Describe 'Read-FiltersFromFile' {
     It 'Reads filters from file, skipping comments and blanks' {
-        $filterPath = Join-Path $env:TEMP 'psldap_test_filters.txt'
+        $filterPath = Join-Path $script:TestTempDir 'psldap_test_filters.txt'
         @('# comment', '(objectClass=user)', '', '   ', '# another', '(sAMAccountName=jdoe)') | Set-Content -Path $filterPath
         $result = @(Read-FiltersFromFile -Path $filterPath)
         Assert-Equal 2 $result.Count
@@ -695,7 +713,7 @@ Describe 'Read-FiltersFromFile' {
     }
 
     It 'Returns empty array for file with only comments' {
-        $filterPath = Join-Path $env:TEMP 'psldap_test_comments.txt'
+        $filterPath = Join-Path $script:TestTempDir 'psldap_test_comments.txt'
         @('# comment1', '# comment2') | Set-Content -Path $filterPath
         $result = @(Read-FiltersFromFile -Path $filterPath)
         Assert-Equal 0 $result.Count
@@ -708,7 +726,7 @@ Describe 'Read-FiltersFromFile' {
 # ============================================================================
 Describe 'Read-SearchSpecsFromLdapURLFile' {
     It 'Parses LDAP URLs correctly' {
-        $urlPath = Join-Path $env:TEMP 'psldap_test_urls.txt'
+        $urlPath = Join-Path $script:TestTempDir 'psldap_test_urls.txt'
         @('ldap://host:389/dc=example,dc=com?cn,mail?sub?(objectClass=user)') | Set-Content -Path $urlPath
         $result = @(Read-SearchSpecsFromLdapURLFile -Path $urlPath)
         Assert-Equal 1 $result.Count
@@ -721,7 +739,7 @@ Describe 'Read-SearchSpecsFromLdapURLFile' {
     }
 
     It 'Skips comment lines and blanks' {
-        $urlPath = Join-Path $env:TEMP 'psldap_test_urls2.txt'
+        $urlPath = Join-Path $script:TestTempDir 'psldap_test_urls2.txt'
         @('# comment', '', 'ldap://host/dc=test?cn?base?(cn=foo)') | Set-Content -Path $urlPath
         $result = @(Read-SearchSpecsFromLdapURLFile -Path $urlPath)
         Assert-Equal 1 $result.Count
@@ -729,7 +747,7 @@ Describe 'Read-SearchSpecsFromLdapURLFile' {
     }
 
     It 'Handles URLs with missing optional parts' {
-        $urlPath = Join-Path $env:TEMP 'psldap_test_urls3.txt'
+        $urlPath = Join-Path $script:TestTempDir 'psldap_test_urls3.txt'
         @('ldap://host/dc=test') | Set-Content -Path $urlPath
         $result = @(Read-SearchSpecsFromLdapURLFile -Path $urlPath)
         Assert-Equal 1 $result.Count
@@ -738,7 +756,7 @@ Describe 'Read-SearchSpecsFromLdapURLFile' {
     }
 
     It 'Handles ldaps:// scheme' {
-        $urlPath = Join-Path $env:TEMP 'psldap_test_urls4.txt'
+        $urlPath = Join-Path $script:TestTempDir 'psldap_test_urls4.txt'
         @('ldaps://host:636/dc=example,dc=com?cn?sub?(cn=test)') | Set-Content -Path $urlPath
         $result = @(Read-SearchSpecsFromLdapURLFile -Path $urlPath)
         Assert-Equal 1 $result.Count
@@ -752,7 +770,7 @@ Describe 'Read-SearchSpecsFromLdapURLFile' {
 # ============================================================================
 Describe 'Write-SearchOutput' {
     It 'Writes to file when outputFile is specified' {
-        $outPath = Join-Path $env:TEMP 'psldap_test_output.ldif'
+        $outPath = Join-Path $script:TestTempDir 'psldap_test_output.ldif'
         $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('test') })
         Write-SearchOutput -Entries $entries -Format 'LDIF' -WrapCol 76 -OutFile $outPath
         Assert-True (Test-Path $outPath)
@@ -803,7 +821,7 @@ Describe 'Write-SearchOutput' {
     }
 
     It 'Tees output to stdout when -TeeToStdOut and file path both given' {
-        $outPath = Join-Path $env:TEMP 'psldap_test_tee.ldif'
+        $outPath = Join-Path $script:TestTempDir 'psldap_test_tee.ldif'
         try {
             $entries = @([ordered]@{ dn = 'cn=tee,dc=com'; cn = @('tee') })
             $stdout = Write-SearchOutput -Entries $entries -Format 'LDIF' -WrapCol 76 -OutFile $outPath -TeeToStdOut
@@ -821,7 +839,7 @@ Describe 'Write-SearchOutput' {
 # ============================================================================
 Describe 'Read-SearchSpecsFromLdapURLFile - Filter Validation' {
     It 'Skips URLs with invalid filters' {
-        $urlPath = Join-Path $env:TEMP 'psldap_test_urls_bad.txt'
+        $urlPath = Join-Path $script:TestTempDir 'psldap_test_urls_bad.txt'
         @(
             'ldap://host/dc=test?cn?sub?(objectClass=user)'
             'ldap://host/dc=test?cn?sub?BADFILTER'
@@ -835,7 +853,7 @@ Describe 'Read-SearchSpecsFromLdapURLFile - Filter Validation' {
 
 Describe 'Read-FiltersFromFile - Filter Validation' {
     It 'Skips invalid filters from file' {
-        $filterPath = Join-Path $env:TEMP 'psldap_test_badfilters.txt'
+        $filterPath = Join-Path $script:TestTempDir 'psldap_test_badfilters.txt'
         @('(objectClass=user)', 'not-a-filter', '(cn=test)') | Set-Content -Path $filterPath
         $result = @(Read-FiltersFromFile -Path $filterPath)
         Assert-Equal 2 $result.Count
@@ -949,7 +967,7 @@ Describe 'Regression Tests' {
         # PowerShell 5.1, which RFC 2849 forbids and many CSV consumers
         # mis-parse. Fixed by routing through [IO.File]::WriteAllText
         # with UTF8Encoding($false).
-        $outPath = Join-Path $env:TEMP 'psldap_test_bom.ldif'
+        $outPath = Join-Path $script:TestTempDir 'psldap_test_bom.ldif'
         try {
             $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('test') })
             Write-SearchOutput -Entries $entries -Format 'LDIF' -WrapCol 76 -OutFile $outPath
@@ -984,5 +1002,48 @@ Describe 'Regression Tests' {
         Assert-Equal 0 $LASTEXITCODE "Child PowerShell process exited non-zero. Output: $remoteResult"
 
         Assert-Equal $localResult $remoteResult "Scramble output differs across processes"
+    }
+
+    It 'Formatters emit the full value when an attribute is a scalar string' {
+        # Regression: ConvertTo-TransformedEntry's scramble branch piped a
+        # single value through ForEach-Object without @(), collapsing
+        # string[] to a scalar string. Format-Csv/Delimited/JsonOutput then
+        # did $vals[0] — which indexes a string by CHARACTER — so a
+        # single-valued scrambled attribute came out as its first character
+        # in CSV, JSON, and delimited output. The formatters now wrap values
+        # in @() so a scalar is treated as one value.
+        $entry = [ordered]@{ dn = 'cn=test,dc=com'; mail = 'john.doe@example.com' }
+
+        $csvLines = @((Format-CsvOutput -Entries @($entry) -Columns @('mail')) -split "`r?`n" | Where-Object { $_ })
+        Assert-Equal 'john.doe@example.com' $csvLines[1] "CSV truncated a scalar attribute value"
+
+        $delimLines = @((Format-DelimitedOutput -Entries @($entry) -Columns @('mail') -Delimiter '|') -split "`r?`n" | Where-Object { $_ })
+        Assert-Equal 'john.doe@example.com' $delimLines[1] "Delimited output truncated a scalar attribute value"
+
+        $parsed = @((Format-JsonOutput -Entries @($entry)) | ConvertFrom-Json)
+        Assert-Equal 'john.doe@example.com' $parsed[0].mail "JSON truncated a scalar attribute value"
+    }
+
+    It 'Get-BindCredential strips a UTF-8 BOM from a bind password file' {
+        # Regression: U+FEFF is not whitespace, so the whitespace trim left a
+        # BOM written by Notepad / Windows PowerShell Out-File as the
+        # password's first character, causing hard-to-diagnose bind failures.
+        $pwPath = Join-Path $script:TestTempDir 'psldap_test_bom_pw.txt'
+        try {
+            $bom = [byte[]]@(0xEF, 0xBB, 0xBF)
+            $pwBytes = [System.Text.Encoding]::UTF8.GetBytes("s3cret`r`n")
+            [System.IO.File]::WriteAllBytes($pwPath, ($bom + $pwBytes))
+
+            $script:bindPasswordFile = $pwPath
+            $script:bindDN = 'cn=admin,dc=example,dc=com'
+            $cred = Get-BindCredential
+            Assert-NotNull $cred "Expected a credential from the password file"
+            Assert-Equal 's3cret' $cred.Password "BOM or line ending leaked into the password"
+        }
+        finally {
+            $script:bindPasswordFile = $null
+            $script:bindDN = $null
+            if (Test-Path $pwPath) { Remove-Item $pwPath -Force }
+        }
     }
 }

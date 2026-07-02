@@ -27,7 +27,7 @@ Or just copy [psldap.ps1](psldap.ps1) anywhere on disk.
 ## Quick start
 
 ```powershell
-# Anonymous bind, default filter, auto-detect domain & baseDN
+# Integrated auth as the current user, default filter, auto-detect domain & baseDN
 .\psldap.ps1
 
 # Specific server, filter, and attributes
@@ -261,10 +261,11 @@ run-tests.bat                 REM defaults to -Iterations 3
 run-tests.bat -Iterations 1   REM forwards args to run-tests.ps1
 ```
 
-The wrapper detects `powershell.exe` (Windows PowerShell) or `pwsh.exe`
-(PowerShell 7+), forwards its arguments to `run-tests.ps1`, and returns the
-test process's exit code (so it works in CI), failing with a clear message if
-no PowerShell is found.
+The wrapper runs the suite with `pwsh.exe` (PowerShell 7.2+), forwards its
+arguments to `run-tests.ps1`, and returns the test process's exit code (so it
+works in CI). It fails with a clear message if `pwsh.exe` is not on PATH —
+Windows PowerShell 5.1 cannot run the suite (see the 0.3.0 release notes), so
+it is not used as a fallback.
 
 ## License
 

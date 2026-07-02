@@ -49,8 +49,8 @@
     Why DirectorySearcher instead of the ActiveDirectory module?
       - The AD module ships with RSAT and is not installed on locked-
         down or non-admin workstations.
-      - DirectorySearcher / DirectoryEntry are part of the .NET BCL on
-        every Windows PowerShell install.
+      - DirectorySearcher / DirectoryEntry are part of the .NET BCL,
+        available to PowerShell 7.2+ on every Windows install.
       - No external module install, no admin rights, no DSC bootstrap.
 #>
 
