@@ -203,6 +203,50 @@ Describe 'Get-StableStringHash' {
 }
 
 # ============================================================================
+# Get-RedactedValues Tests
+# ============================================================================
+Describe 'Get-RedactedValues' {
+    It 'Returns a single marker for one value' {
+        $result = @(Get-RedactedValues -Values @('secret'))
+        Assert-Equal 1 $result.Count
+        Assert-Equal '***REDACTED***' $result[0]
+    }
+
+    It 'Returns numbered markers for multiple values' {
+        $result = @(Get-RedactedValues -Values @('a', 'b', 'c'))
+        Assert-Equal 3 $result.Count
+        Assert-Equal '***REDACTED1***' $result[0]
+        Assert-Equal '***REDACTED2***' $result[1]
+        Assert-Equal '***REDACTED3***' $result[2]
+    }
+
+    It 'Returns empty for zero values without -HideCount' {
+        # Regression: `1..$Values.Count` is a DESCENDING range when Count is
+        # 0 (`1..0` = 1, 0), which previously fabricated two phantom values
+        # ***REDACTED1***/***REDACTED0*** for an attribute with no values
+        # (e.g. under -typesOnly).
+        $result = @(Get-RedactedValues -Values @())
+        Assert-Equal 0 $result.Count
+    }
+
+    It 'Returns a single marker for zero values WITH -HideCount' {
+        # Regression: an earlier fix for the above bug over-corrected and
+        # also suppressed -hideRedactedValueCount's documented guarantee —
+        # "show only a single '***REDACTED***' regardless of value count" —
+        # for the zero-value case specifically.
+        $result = @(Get-RedactedValues -Values @() -HideCount)
+        Assert-Equal 1 $result.Count
+        Assert-Equal '***REDACTED***' $result[0]
+    }
+
+    It 'Returns a single marker for multiple values WITH -HideCount' {
+        $result = @(Get-RedactedValues -Values @('a', 'b', 'c') -HideCount)
+        Assert-Equal 1 $result.Count
+        Assert-Equal '***REDACTED***' $result[0]
+    }
+}
+
+# ============================================================================
 # Invoke-ScrambleValue Tests
 # ============================================================================
 Describe 'Invoke-ScrambleValue' {

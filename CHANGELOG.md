@@ -6,6 +6,45 @@ All notable changes to PSldap are documented here.
 
 ### Fixed
 
+- **A follow-up review of the previous fixes below (0.3.0+) found two
+  self-inflicted regressions, both now corrected:**
+  - **The zero-value redact fix over-corrected and broke
+    `-hideRedactedValueCount` for that same case.** Fixing the
+    `1..0`-descending-range bug wrapped the whole redact branch in
+    `$values.Count -gt 0`, which also skipped `-hideRedactedValueCount`'s
+    documented job ("show only a single `***REDACTED***` regardless of
+    value count") when an attribute had zero values. Extracted the redact
+    logic into `Get-RedactedValues` — now directly unit-tested (4 new
+    tests) since it has shipped two bugs in a row and `ConvertTo-TransformedEntry`
+    itself can't be unit-tested (`SearchResultEntry` has no public
+    constructor).
+  - **Keeping partial results on a server-enforced size/time limit also
+    silently dropped the "failed search" signal.** The fix returned
+    normally with only a `Write-Warning`, so the script always exited 0
+    and `-continueOnError`'s stop-by-default semantics no longer applied
+    to that search — a real regression for any automation checking the
+    exit code, confirmed independently by two review passes. Now:
+    `Invoke-LdapSearch` still keeps the partial entries but stashes them
+    on the exception's `Data` dictionary and re-throws unchanged;
+    `Invoke-SearchAndOutput` catches it, transforms and writes the
+    partial entries (so they're not lost), then re-throws the same
+    exception — so the search is still written out but still counted as
+    a failure: nonzero exit code, stops subsequent searches unless
+    `-continueOnError`, exactly like every other search error.
+
+### Changed
+
+- **`Format-CsvOutput`/`Format-CsvField` are now thin wrappers over
+  `Format-DelimitedOutput`/`Format-DelimitedField` with `,`** (mirroring
+  the existing `Format-TabOutput` pattern), removing a row-building block
+  that was duplicated between the CSV and delimited formatters — and had
+  already needed the same one-line bugfix pasted into both places once.
+  No behavior change (verified: CSV escaping only ever differed from
+  delimited-with-comma in implementation, never in output).
+- **`Test-LdapFilter` folds its `()`-empty-parens check into the existing
+  depth-tracking loop** instead of a separate full-string `.Contains`
+  pre-pass, removing a redundant O(n) scan. No behavior change.
+
 - **Single-valued scrambled attributes were truncated to their first
   character in CSV, JSON, and delimited output.** The scramble branch in
   `ConvertTo-TransformedEntry` piped one value through `ForEach-Object`
