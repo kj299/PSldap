@@ -469,12 +469,16 @@ function Test-LdapFilter {
     if ([string]::IsNullOrWhiteSpace($Filter)) { return $false }
     if ($Filter[0] -ne '(') { return $false }
     if ($Filter[-1] -ne ')') { return $false }
-    if ($Filter.Contains('()')) { return $false }
 
     $depth = 0
     for ($i = 0; $i -lt $Filter.Length; $i++) {
         $ch = $Filter[$i]
-        if ($ch -eq '(') { $depth++ }
+        if ($ch -eq '(') {
+            $depth++
+            # Empty parens '()' are invalid anywhere, top-level or nested —
+            # check in the same pass instead of a separate full-string scan.
+            if ($i -lt $Filter.Length - 1 -and $Filter[$i + 1] -eq ')') { return $false }
+        }
         elseif ($ch -eq ')') { $depth-- }
         if ($depth -lt 0) { return $false }
         # Depth may only return to 0 at the very end — otherwise the string
@@ -552,6 +556,38 @@ function Read-SearchSpecsFromLdapURLFile {
     return $specs.ToArray()
 }
 
+function Get-RedactedValues {
+    <#
+    .SYNOPSIS
+        Applies -redactAttribute masking to an attribute's value array.
+        Extracted from ConvertTo-TransformedEntry so this logic — which has
+        shipped two bugs (a phantom-value fabrication and a lost
+        -hideRedactedValueCount guarantee) — is directly unit-testable
+        without a SearchResultEntry (which has no public constructor).
+    #>
+    param(
+        [string[]]$Values,
+        [switch]$HideCount
+    )
+
+    # -hideRedactedValueCount always shows a single marker, even for a
+    # zero-value attribute (e.g. under -typesOnly) — that is its documented
+    # job ("show only a single '***REDACTED***' regardless of value count").
+    if ($HideCount) {
+        return @('***REDACTED***')
+    }
+    if ($Values.Count -eq 1) {
+        return @('***REDACTED***')
+    }
+    if ($Values.Count -gt 1) {
+        return @(1..$Values.Count | ForEach-Object { "***REDACTED$_***" })
+    }
+    # Zero values, no -hideRedactedValueCount: stay empty. `1..0` is a
+    # DESCENDING range in PowerShell and would otherwise fabricate two
+    # phantom values (***REDACTED1***, ***REDACTED0***).
+    return @()
+}
+
 function ConvertTo-TransformedEntry {
     <#
     .SYNOPSIS
@@ -591,18 +627,9 @@ function ConvertTo-TransformedEntry {
         }
         $values = $valueList.ToArray()
 
-        # Redact check. An attribute with zero values (e.g. under -typesOnly)
-        # stays empty — `1..0` is a DESCENDING range in PowerShell and would
-        # fabricate two phantom values.
+        # Redact check
         if ($RedactAttributes -and ($RedactAttributes | Where-Object { $_.ToLower() -eq $attrNameLower })) {
-            if ($values.Count -gt 0) {
-                if ($HideRedactedCount -or $values.Count -eq 1) {
-                    $values = @('***REDACTED***')
-                }
-                else {
-                    $values = @(1..$values.Count | ForEach-Object { "***REDACTED$_***" })
-                }
-            }
+            $values = Get-RedactedValues -Values $values -HideCount:$HideRedactedCount
         }
         # Scramble check
         elseif ($ScrambleAttributes -and ($ScrambleAttributes | Where-Object { $_.ToLower() -eq $attrNameLower })) {
@@ -827,7 +854,8 @@ function Format-JsonOutput {
 function Format-CsvOutput {
     <#
     .SYNOPSIS
-        Formats entries as CSV or multi-valued CSV.
+        Formats entries as CSV or multi-valued CSV. Thin wrapper over
+        Format-DelimitedOutput with a comma delimiter (mirrors Format-TabOutput).
     #>
     param(
         [array]$Entries,
@@ -835,44 +863,18 @@ function Format-CsvOutput {
         [switch]$MultiValued
     )
 
-    $sb = [System.Text.StringBuilder]::new()
-
-    # Header
-    [void]$sb.AppendLine(($Columns | ForEach-Object { Format-CsvField $_ }) -join ',')
-
-    foreach ($entry in $Entries) {
-        $row = @()
-        foreach ($col in $Columns) {
-            # @() so a scalar value is one field, not indexed by character.
-            $vals = @($entry[$col])
-            if (-not $vals) {
-                $row += ''
-            }
-            elseif ($MultiValued) {
-                $row += Format-CsvField (($vals) -join '|')
-            }
-            else {
-                $row += Format-CsvField ($vals[0])
-            }
-        }
-        [void]$sb.AppendLine($row -join ',')
-    }
-
-    return $sb.ToString()
+    return Format-DelimitedOutput -Entries $Entries -Columns $Columns -Delimiter ',' -MultiValued:$MultiValued
 }
 
 function Format-CsvField {
     <#
     .SYNOPSIS
-        Properly escapes a CSV field value.
+        Properly escapes a CSV field value. Thin wrapper over
+        Format-DelimitedField with a comma delimiter.
     #>
     param([string]$Value)
 
-    if ([string]::IsNullOrEmpty($Value)) { return '' }
-    if ($Value -match '[,"\r\n]') {
-        return '"' + ($Value -replace '"', '""') + '"'
-    }
-    return $Value
+    return Format-DelimitedField -Value $Value -Delimiter ','
 }
 
 function Format-DelimitedField {
@@ -1153,8 +1155,11 @@ function Invoke-LdapSearch {
         catch [System.DirectoryServices.Protocols.DirectoryOperationException] {
             # A server-enforced size or time limit surfaces as a thrown
             # exception with the partial results attached to its Response.
-            # Keep them (like ldapsearch does) instead of discarding the
-            # entries already received.
+            # Stash them on the exception's Data dictionary (like ldapsearch,
+            # keep what was received) and re-throw unchanged: the search is
+            # still a failure — Invoke-SearchAndOutput writes the partial
+            # entries, then the caller's usual exit-code / -continueOnError
+            # handling still applies, matching every other search error.
             $errResponse = $_.Exception.Response
             $resultCode = $errResponse.ResultCode
             if ($errResponse -is [System.DirectoryServices.Protocols.SearchResponse] -and
@@ -1163,8 +1168,7 @@ function Invoke-LdapSearch {
                 foreach ($entry in $errResponse.Entries) {
                     $allEntries.Add($entry)
                 }
-                Write-Warning "Server reported ${resultCode}; returning the $($allEntries.Count) entries received."
-                break
+                $_.Exception.Data['PartialEntries'] = $allEntries
             }
             throw
         }
@@ -1213,7 +1217,11 @@ function Invoke-SearchAndOutput {
     <#
     .SYNOPSIS
         Executes a single search, transforms entries, and writes output.
-        Returns the count of entries found.
+        Returns the count of entries found. If the server truncates the
+        search (SizeLimitExceeded/TimeLimitExceeded), the partial entries
+        it returned are still transformed and written, then the failure is
+        re-thrown so the caller's usual exit-code / -continueOnError
+        handling still applies to this search.
     #>
     param(
         [System.DirectoryServices.Protocols.LdapConnection]$Conn,
@@ -1226,20 +1234,29 @@ function Invoke-SearchAndOutput {
         [string]$OutFile
     )
 
-    $rawEntries = Invoke-LdapSearch `
-        -Connection $Conn `
-        -SearchBaseDN $BaseDN `
-        -SearchFilter $Filter `
-        -SearchScope $Scope `
-        -Attributes $Attrs `
-        -MaxResults $script:sizeLimit `
-        -TimeLimit $script:timeLimitSeconds `
-        -PageSize $script:simplePageSize `
-        -SortOrderStr $script:sortOrder `
-        -DerefPolicy $script:dereferencePolicy `
-        -TypesOnlyFlag:$script:typesOnly `
-        -DryRunFlag:$script:dryRun `
-        -RateLimit $script:ratePerSecond
+    $searchFailure = $null
+    try {
+        $rawEntries = Invoke-LdapSearch `
+            -Connection $Conn `
+            -SearchBaseDN $BaseDN `
+            -SearchFilter $Filter `
+            -SearchScope $Scope `
+            -Attributes $Attrs `
+            -MaxResults $script:sizeLimit `
+            -TimeLimit $script:timeLimitSeconds `
+            -PageSize $script:simplePageSize `
+            -SortOrderStr $script:sortOrder `
+            -DerefPolicy $script:dereferencePolicy `
+            -TypesOnlyFlag:$script:typesOnly `
+            -DryRunFlag:$script:dryRun `
+            -RateLimit $script:ratePerSecond
+    }
+    catch [System.DirectoryServices.Protocols.DirectoryOperationException] {
+        if (-not $_.Exception.Data.Contains('PartialEntries')) { throw }
+        $rawEntries = $_.Exception.Data['PartialEntries']
+        $searchFailure = $_.Exception
+        Write-Warning "Writing the $($rawEntries.Count) entries received before reporting the failure."
+    }
 
     $transformedEntries = [System.Collections.Generic.List[object]]::new()
     foreach ($rawEntry in $rawEntries) {
@@ -1291,6 +1308,12 @@ function Invoke-SearchAndOutput {
     if (-not $script:terse -and -not $script:dryRun) {
         Write-Host ""
         Write-Host "# numEntries: $($transformedEntries.Count)" -ForegroundColor DarkGray
+    }
+
+    if ($searchFailure) {
+        # Partial results are already written above; now surface the
+        # original failure so it still counts as a failed search.
+        throw $searchFailure
     }
 
     return $transformedEntries.Count
