@@ -1,0 +1,80 @@
+# Test data for the live OpenLDAP tier (tests/live). Modeled on the public
+# Forumsys test server (dc=example,dc=com, read-only-admin, scientists),
+# plus a multi-valued / non-ASCII entry. Passwords are the literal test
+# value 'password' — this directory exists only for CI.
+
+dn: dc=example,dc=com
+objectClass: dcObject
+objectClass: organization
+o: Example
+dc: example
+
+dn: cn=read-only-admin,dc=example,dc=com
+objectClass: simpleSecurityObject
+objectClass: organizationalRole
+cn: read-only-admin
+userPassword: password
+
+dn: uid=einstein,dc=example,dc=com
+objectClass: inetOrgPerson
+uid: einstein
+cn: Albert Einstein
+sn: Einstein
+givenName: Albert
+mail: einstein@ldap.example.com
+userPassword: password
+
+dn: uid=newton,dc=example,dc=com
+objectClass: inetOrgPerson
+uid: newton
+cn: Isaac Newton
+sn: Newton
+givenName: Isaac
+mail: newton@ldap.example.com
+userPassword: password
+
+dn: uid=tesla,dc=example,dc=com
+objectClass: inetOrgPerson
+uid: tesla
+cn: Nikola Tesla
+sn: Tesla
+givenName: Nikola
+mail: tesla@ldap.example.com
+userPassword: password
+
+dn: uid=curie,dc=example,dc=com
+objectClass: inetOrgPerson
+uid: curie
+cn: Marie Curie
+sn: Curie
+givenName: Marie
+mail: curie@ldap.example.com
+userPassword: password
+
+dn: uid=gauss,dc=example,dc=com
+objectClass: inetOrgPerson
+uid: gauss
+cn: Carl Gauss
+sn: Gauss
+givenName: Carl
+mail: gauss@ldap.example.com
+userPassword: password
+
+dn: uid=euler,dc=example,dc=com
+objectClass: inetOrgPerson
+uid: euler
+cn: Leonhard Euler
+sn: Euler
+givenName: Leonhard
+mail: euler@ldap.example.com
+userPassword: password
+
+dn: uid=bohr,dc=example,dc=com
+objectClass: inetOrgPerson
+uid: bohr
+cn: Niels Bohr
+sn: Bohr
+mail: bohr@ldap.example.com
+mail: niels@ldap.example.com
+description:: w4Vyc3RlZCDDmHJzdGVkIOKAlCBub24tQVNDSUk=
+userPassword: password

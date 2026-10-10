@@ -9,6 +9,7 @@ on:
       - 'psldap.ps1'
       - 'psldap.Tests.ps1'
       - 'run-tests.ps1'
+      - 'tests/**'
       - '.github/workflows/tests.yml'
   pull_request:
     branches: [main]
@@ -16,12 +17,17 @@ on:
       - 'psldap.ps1'
       - 'psldap.Tests.ps1'
       - 'run-tests.ps1'
+      - 'tests/**'
       - '.github/workflows/tests.yml'
 
 # PowerShell 7+ only (issue #15 Stage 2 dropped Windows PowerShell 5.1).
 # `Get-StableStringHash` now calls [SHA256]::HashData(), which is .NET 5+ /
 # PS 7.2+ only — running the suite on `powershell.exe` would throw
 # MissingMethodException at runtime.
+
+# Least privilege: the jobs only check out code and run tests.
+permissions:
+  contents: read
 
 jobs:
   test-pwsh:
@@ -37,3 +43,31 @@ jobs:
       - name: Run test suite (3 iterations)
         shell: pwsh
         run: ./run-tests.ps1 -Iterations 3
+
+  # Live tier: run psldap.ps1 against a real (throwaway) OpenLDAP server.
+  # The unit suite can't build SearchResponse objects, so before this job
+  # nothing exercised a real search — and two bugs that broke every real
+  # search shipped. Ubuntu, because slapd installs there in seconds;
+  # System.DirectoryServices.Protocols uses libldap on Linux.
+  live-openldap:
+    name: Live tests (OpenLDAP, Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenLDAP
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq slapd ldap-utils
+          # The packaged slapd's AppArmor profile only allows its own
+          # /var/lib/ldap paths; the test server runs from a temp dir.
+          if [ -f /etc/apparmor.d/usr.sbin.slapd ]; then
+            sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.slapd || true
+          fi
+
+      - name: Start test server
+        run: ./tests/live/start-openldap.sh "$RUNNER_TEMP/openldap" 3389
+
+      - name: Run live tests
+        shell: pwsh
+        run: ./tests/live/psldap.Live.Tests.ps1 -Port 3389
