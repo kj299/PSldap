@@ -636,7 +636,14 @@ function ConvertTo-TransformedEntry {
         dn = $Entry.DistinguishedName
     }
 
-    foreach ($attrName in $Entry.Attributes.AttributeNames) {
+    # AttributeNames are the collection's hashtable keys: lowercased, and in
+    # an order that changes from run to run (.NET randomizes string hashing
+    # per process). Use each attribute's own .Name for the server's casing
+    # (givenName, not givenname), sorted so output is stable across runs.
+    $attrNames = foreach ($key in $Entry.Attributes.AttributeNames) { $Entry.Attributes[$key].Name }
+    $attrNames = @($attrNames | Sort-Object { $_.ToLowerInvariant() })
+
+    foreach ($attrName in $attrNames) {
         $attrNameLower = $attrName.ToLower()
 
         # Exclude check
@@ -824,6 +831,13 @@ function Format-LdifOutput {
 
         foreach ($key in $entry.Keys) {
             if ($key -eq 'dn') { continue }
+            # An attribute with no values (e.g. under -typesOnly) is still
+            # listed, as a bare 'name:' line — matching ldapsearch -A —
+            # instead of vanishing so that only the dn: line is printed.
+            if (@($entry[$key]).Count -eq 0) {
+                [void]$sb.AppendLine("${key}:")
+                continue
+            }
             foreach ($val in $entry[$key]) {
                 if (Test-NeedsBase64 -Value $val) {
                     $b64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($val))
@@ -1104,6 +1118,27 @@ function Get-SortControls {
     return [System.DirectoryServices.Protocols.SortRequestControl]::new([System.DirectoryServices.Protocols.SortKey[]]$keys)
 }
 
+function ConvertTo-DereferenceAlias {
+    <#
+    .SYNOPSIS
+        Maps a -dereferencePolicy name (never/always/search/find) to the
+        DereferenceAlias enum. The .NET member names are Never, Always,
+        InSearching and FindingBaseObject — NOT the C-API-style
+        NeverDerefAliases / DerefAlways / ...: those don't exist, evaluate to
+        $null in PowerShell, and made setting SearchRequest.Aliases throw on
+        every real search (the default policy is 'never').
+    #>
+    param([string]$Policy)
+
+    switch ($Policy) {
+        'never'  { return [System.DirectoryServices.Protocols.DereferenceAlias]::Never }
+        'always' { return [System.DirectoryServices.Protocols.DereferenceAlias]::Always }
+        'search' { return [System.DirectoryServices.Protocols.DereferenceAlias]::InSearching }
+        'find'   { return [System.DirectoryServices.Protocols.DereferenceAlias]::FindingBaseObject }
+        default  { throw "Invalid dereference policy '$Policy'. Must be one of: never, always, search, find." }
+    }
+}
+
 function Invoke-LdapSearch {
     <#
     .SYNOPSIS
@@ -1153,13 +1188,7 @@ function Invoke-LdapSearch {
 
     # Dereference policy
     if ($DerefPolicy) {
-        $derefMap = @{
-            'never'  = [System.DirectoryServices.Protocols.DereferenceAlias]::NeverDerefAliases
-            'always' = [System.DirectoryServices.Protocols.DereferenceAlias]::DerefAlways
-            'search' = [System.DirectoryServices.Protocols.DereferenceAlias]::DerefInSearching
-            'find'   = [System.DirectoryServices.Protocols.DereferenceAlias]::DerefFindingBaseObject
-        }
-        $request.Aliases = $derefMap[$DerefPolicy]
+        $request.Aliases = ConvertTo-DereferenceAlias -Policy $DerefPolicy
     }
 
     # Paging control

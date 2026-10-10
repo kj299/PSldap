@@ -6,6 +6,27 @@ All notable changes to PSldap are documented here.
 
 ### Fixed
 
+- **Every real search failed: `-dereferencePolicy` mapped to enum names that
+  don't exist.** The map used C-API-style names (`NeverDerefAliases`,
+  `DerefAlways`, ...); the .NET `DereferenceAlias` members are `Never`,
+  `Always`, `InSearching` and `FindingBaseObject`. The bad names evaluated
+  to `$null`, and because the default policy is `never`, setting
+  `SearchRequest.Aliases` threw on every search against a server ("Cannot
+  convert null to type DereferenceAlias"). This had been present since the
+  2026-03 uplift and was found by the first run against a live server; only
+  `-dryRun`, which builds no request, worked. The mapping now lives in
+  `ConvertTo-DereferenceAlias`, which is unit-tested.
+- **Attribute names came out lowercased and in random order.** Entries were
+  keyed by `SearchResultAttributeCollection`'s hashtable keys, which are
+  lowercased (`givenname`) and ordered by string hash, and .NET randomizes
+  that per process. Output now uses each attribute's own name as the server
+  sent it (`givenName`), sorted case-insensitively, so output is stable from
+  run to run. **This changes JSON keys and CSV headers** for mixed-case
+  attributes. Exclude, redact and scramble matching stays
+  case-insensitive.
+- **`-typesOnly` LDIF printed only the `dn:` line.** Attributes with no
+  values were skipped entirely. They are now listed as bare `name:` lines,
+  as `ldapsearch -A` does.
 - **A retrospective audit found that the default stdout mode had never
   worked, plus several exit-code and input-handling gaps.** Three review
   rounds missed all of these because no test ran the script's main block:
@@ -166,6 +187,15 @@ All notable changes to PSldap are documented here.
 
 ### Tests
 
+- **Live test tier** (`tests/live/`): `start-openldap.sh` starts a
+  throwaway OpenLDAP server with server-side sorting, a size-limited
+  read-only account and Forumsys-style fixture data. `psldap.Live.Tests.ps1`
+  runs `psldap.ps1` against it with 16 end-to-end checks, covering paging,
+  size and server limits, sort, `-typesOnly`, casing, redaction, shared
+  output files and exit codes. A new `live-openldap` CI job runs it on
+  Ubuntu. Run against the previous `psldap.ps1`, 13 of the 16 fail.
+- Unit tests for `ConvertTo-DereferenceAlias` and for bare-name LDIF lines
+  (149 unit tests).
 - **End-to-end tests.** A new `End-to-End (script run)` block runs
   `psldap.ps1 -dryRun` as a child process and checks stdout and the exit
   code. That covers the main block, which every other test skips.

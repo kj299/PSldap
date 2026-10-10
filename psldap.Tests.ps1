@@ -443,6 +443,15 @@ Describe 'Format-CsvField' {
 # Format-LdifOutput Tests
 # ============================================================================
 Describe 'Format-LdifOutput' {
+    It 'Lists a zero-valued attribute as a bare name line (-typesOnly)' {
+        # Regression: under -typesOnly every attribute has zero values, and
+        # LDIF printed only the dn: line. ldapsearch -A prints 'name:' lines.
+        $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @(); givenName = @() })
+        $result = Format-LdifOutput -Entries $entries -WrapCol 76 -Terse
+        Assert-Match $result '(?m)^cn:\r?$'
+        Assert-Match $result '(?m)^givenName:\r?$'
+    }
+
     It 'Outputs version header when not terse' {
         $entries = @([ordered]@{ dn = 'cn=test,dc=example,dc=com'; cn = @('test') })
         $result = Format-LdifOutput -Entries $entries -WrapCol 76
@@ -939,6 +948,34 @@ Describe 'Read-FiltersFromFile - Filter Validation' {
 # Tests that grep / parse psldap.ps1 itself to catch regressions that are
 # easier to spot statically than to reproduce behaviorally.
 # ============================================================================
+Describe 'ConvertTo-DereferenceAlias' {
+    It 'Maps every -dereferencePolicy value to a real DereferenceAlias member' {
+        # Regression: the map used C-API-style names (NeverDerefAliases, ...)
+        # that aren't .NET enum members; they evaluated to $null and setting
+        # SearchRequest.Aliases threw on EVERY real search (default 'never').
+        $expected = @{ never = 'Never'; always = 'Always'; search = 'InSearching'; find = 'FindingBaseObject' }
+        foreach ($policy in $expected.Keys) {
+            $alias = ConvertTo-DereferenceAlias -Policy $policy
+            Assert-True ($alias -is [System.DirectoryServices.Protocols.DereferenceAlias]) "'$policy' did not map to a DereferenceAlias"
+            Assert-Equal $expected[$policy] $alias.ToString()
+        }
+    }
+
+    It 'Produces values a SearchRequest accepts' {
+        $request = [System.DirectoryServices.Protocols.SearchRequest]::new('dc=example,dc=com', '(cn=a)', 'Subtree', $null)
+        foreach ($policy in 'never', 'always', 'search', 'find') {
+            $request.Aliases = ConvertTo-DereferenceAlias -Policy $policy
+        }
+        Assert-Equal 'FindingBaseObject' $request.Aliases.ToString()
+    }
+
+    It 'Throws on an unknown policy' {
+        $threw = $false
+        try { $null = ConvertTo-DereferenceAlias -Policy 'sometimes' } catch { $threw = $true }
+        Assert-True $threw "Unknown policy should throw"
+    }
+}
+
 Describe 'Get-OutputColumns' {
     $entries = @(
         [ordered]@{ dn = 'cn=a,dc=com'; cn = @('a'); mail = @('a@x') },

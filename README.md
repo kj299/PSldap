@@ -267,6 +267,24 @@ works in CI). It fails with a clear message if `pwsh.exe` is not on PATH —
 Windows PowerShell 5.1 cannot run the suite (see the 0.3.0 release notes), so
 it is not used as a fallback.
 
+### Live tests (real LDAP server)
+
+The unit suite can't construct real search results, so a second tier runs
+`psldap.ps1` end to end against a throwaway OpenLDAP server loaded with
+[tests/live/fixture.ldif](tests/live/fixture.ldif). CI runs it on Ubuntu;
+locally (Linux/WSL, with `slapd` and `ldap-utils` installed):
+
+```bash
+tests/live/start-openldap.sh /tmp/psldap-ldap 3389   # starts slapd on 127.0.0.1:3389
+pwsh tests/live/psldap.Live.Tests.ps1 -Port 3389
+kill "$(cat /tmp/psldap-ldap/slapd.pid)"              # stop it afterwards
+```
+
+To try the script by hand against a public server instead, the
+[Forumsys online LDAP test server](https://www.forumsys.com/2022/05/10/online-ldap-test-server/)
+works too: `-hostname ldap.forumsys.com -baseDN 'dc=example,dc=com'
+-bindDN 'cn=read-only-admin,dc=example,dc=com'` with its published password.
+
 ## License
 
 See repository for license terms.
