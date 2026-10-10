@@ -20,9 +20,10 @@
     one-shot query.
 
 .PARAMETER Filter
-    Required. The LDAP filter, e.g. "(objectClass=user)". Validated for
-    parenthesis balance before any AD I/O happens, so malformed filters
-    fail fast and locally without a server round-trip.
+    Required. The LDAP filter, e.g. "(objectClass=user)". Its shape is
+    checked before any AD I/O happens: one top-level filter, balanced
+    parentheses, and no '()' or '(('. Malformed filters fail fast and
+    locally, without a server round-trip.
 
 .PARAMETER Properties
     Optional. Attributes to load. Defaults to a small set of the most

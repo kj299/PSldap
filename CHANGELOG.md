@@ -4,7 +4,22 @@ All notable changes to PSldap are documented here.
 
 ## [Unreleased]
 
-_No changes yet._
+### Documentation
+
+- `-filter` and `-requestedAttribute` help and README rows said the
+  parameters "may be specified multiple times". PowerShell rejects a
+  repeated parameter, so they now show the comma-list form
+  (`-filter '(a=1)','(b=2)'`). The `-requestedAttribute` help also notes
+  that `*` and `+` are expanded.
+- README requirements now state platform support: Windows, or Linux with
+  `libldap` for explicit binds (integrated auth is Windows-only). They also
+  no longer claim the assemblies "ship with Windows"; they ship with
+  PowerShell 7.
+- `ad-ldap-query`: the README's offline-test list and
+  `Invoke-AdLdapQuery`'s `-Filter` help now describe the stricter shape
+  check added in 0.4.0.
+- `psldap.Tests.ps1` synopsis mentions its end-to-end block; the 0.4.0
+  notes' unit-test count is corrected to 149 (it read 145 in one place).
 
 ## [0.4.0] - 2026-10-10
 
@@ -223,8 +238,7 @@ _No changes yet._
   size and server limits, sort, `-typesOnly`, casing, redaction, shared
   output files and exit codes. A new `live-openldap` CI job runs it on
   Ubuntu. Run against the previous `psldap.ps1`, 13 of the 16 fail.
-- Unit tests for `ConvertTo-DereferenceAlias` and for bare-name LDIF lines
-  (149 unit tests).
+- Unit tests for `ConvertTo-DereferenceAlias` and for bare-name LDIF lines.
 - **End-to-end tests.** A new `End-to-End (script run)` block runs
   `psldap.ps1 -dryRun` as a child process and checks stdout and the exit
   code. That covers the main block, which every other test skips.
@@ -232,7 +246,7 @@ _No changes yet._
   -Append`, UTF-16 and empty password files, and `((a=b))`.
 - **Two new offline tests** in the `ad-ldap-query` harness cover the
   stricter filter checks.
-- The suite now has 145 tests (up from 127).
+- The unit suite now has 149 tests (up from 127).
 - **`run-tests.ps1` now exits 0 explicitly on success.** Without that, a
   passing end-to-end test that expects psldap.ps1 to fail left
   `$LASTEXITCODE` at 1, and GitHub Actions' `pwsh` step wrapper reported a

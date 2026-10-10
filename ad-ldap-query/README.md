@@ -90,6 +90,8 @@ Run without any AD connectivity. Cover:
 - `Invoke-AdLdapQuery` function exported after dot-source
 - Empty / whitespace filter rejected before any AD I/O
 - Malformed filter (unbalanced parens) rejected locally
+- Structurally malformed filters (`(a=b)(c=d)`, `()`, `(&()(a=b))`, `((a=b))`) rejected locally
+- Well-formed compound filters (`&`, `!`, escaped `\28`/`\29`) pass the local shape check
 - Negative `MaxResults` rejected
 
 ### Live AD tests

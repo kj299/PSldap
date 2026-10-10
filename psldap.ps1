@@ -63,7 +63,8 @@
     Return only attribute names, not values.
 
 .PARAMETER filter
-    The LDAP search filter. May be specified multiple times. Default: (objectClass=*).
+    The LDAP search filter. Pass several as a comma-separated list to run
+    several searches: -filter '(cn=a*)','(cn=b*)'. Default: (objectClass=*).
 
 .PARAMETER filterFile
     Path to a file containing LDAP filters (one per line). Lines starting with '#' are ignored.
@@ -73,7 +74,10 @@
     scope, filter, and attributes. Host/port in URLs are ignored.
 
 .PARAMETER requestedAttribute
-    Attribute(s) to include in results. May be specified multiple times.
+    Attribute(s) to include in results, as a comma-separated list:
+    -requestedAttribute cn,mail. '*' (all user attributes) and '+' (all
+    operational attributes) are expanded to the attributes actually returned
+    in CSV/delimited output.
 
 .PARAMETER followReferrals
     Follow referrals encountered during search processing.
