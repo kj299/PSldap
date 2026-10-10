@@ -6,6 +6,53 @@ All notable changes to PSldap are documented here.
 
 ### Fixed
 
+- **A retrospective audit found that the default stdout mode had never
+  worked, plus several exit-code and input-handling gaps.** Three review
+  rounds missed all of these because no test ran the script's main block:
+  - **Results written to stdout were swallowed, and every such search
+    failed.** `Write-SearchOutput` emits its text on the success stream, so
+    the text landed in `Invoke-SearchAndOutput`'s return value next to the
+    entry count, and `$totalEntryCount += $count` then threw. Without
+    `-outputFile` (or with `-teeResultsToStandardOut`), nothing was printed,
+    the script exited 1, and a multi-filter run stopped after its first
+    search. This had been present since the 2026-03 uplift. The count now
+    comes back through a `[ref]` parameter, and entries written from a
+    partial (size- or time-limited) search are counted too.
+  - **`-countEntries` hid failures.** It overwrote the exit code with the
+    entry count, so a failed search exited 0 (or with the partial count). A
+    failure's exit code now takes precedence.
+  - **A `-filterFile` or `-ldapURLFile` with no valid lines searched the
+    whole directory.** When every line was skipped as invalid, the
+    `(objectClass=*)` default kicked in and the run exited 0. This is now an
+    error. An LDAP URL with no `/` after the host now produces a warning
+    instead of being skipped silently.
+  - **An invalid scope in an LDAP URL stopped the run with exit code 0.** It
+    now sets exit code 1.
+  - **UTF-16 password files were garbled.** The earlier BOM fix handled only
+    UTF-8, but Windows PowerShell 5.1's `Out-File` writes UTF-16LE by
+    default. `Get-BindCredential` now honors UTF-16LE and UTF-16BE
+    byte-order marks, and decodes the file before looking for the end of
+    the line.
+  - **An empty password silently became an unauthenticated bind.** An empty
+    or whitespace-only `-bindPasswordFile` (or pressing Enter at
+    `-promptForBindPassword`) sent a DN with an empty password. That is an
+    unauthenticated simple bind (RFC 4513 §5.1.2), which some servers
+    accept as anonymous. It is now refused with a clear error.
+  - **Each search overwrote a shared `-outputFile`.** Without
+    `-separateOutputFilePerSearch`, only the last search's results
+    survived. LDIF, dns-only and values-only results are now appended, and
+    LDIF keeps a single `version: 1` header as RFC 2849 requires. JSON and
+    CSV/delimited output can't be concatenated, so those formats now require
+    `-separateOutputFilePerSearch` instead of losing data.
+  - **`*` and `+` in `-requestedAttribute` became literal CSV/delimited
+    columns**, with every row blank. They now expand to the attributes
+    actually returned, listed after any named attributes
+    (`Get-OutputColumns`).
+- **Filter validation is stricter.** `Test-LdapFilter` now rejects
+  `((a=b))`, because RFC 4515 requires an operator or attribute after `(`.
+  `ad-ldap-query`'s `Test-AdLdapFilterShape` gets the same rules
+  `Test-LdapFilter` received earlier: it still accepted `(a=b)(c=d)`, `()`
+  and `(&()(a=b))`.
 - **A follow-up review of the previous fixes below (0.3.0+) found two
   self-inflicted regressions, both now corrected:**
   - **The zero-value redact fix over-corrected and broke
@@ -14,7 +61,7 @@ All notable changes to PSldap are documented here.
     `$values.Count -gt 0`, which also skipped `-hideRedactedValueCount`'s
     documented job ("show only a single `***REDACTED***` regardless of
     value count") when an attribute had zero values. Extracted the redact
-    logic into `Get-RedactedValues` — now directly unit-tested (4 new
+    logic into `Get-RedactedValues` — now directly unit-tested (5 new
     tests) since it has shipped two bugs in a row and `ConvertTo-TransformedEntry`
     itself can't be unit-tested (`SearchResultEntry` has no public
     constructor).
@@ -31,20 +78,6 @@ All notable changes to PSldap are documented here.
     exception — so the search is still written out but still counted as
     a failure: nonzero exit code, stops subsequent searches unless
     `-continueOnError`, exactly like every other search error.
-
-### Changed
-
-- **`Format-CsvOutput`/`Format-CsvField` are now thin wrappers over
-  `Format-DelimitedOutput`/`Format-DelimitedField` with `,`** (mirroring
-  the existing `Format-TabOutput` pattern), removing a row-building block
-  that was duplicated between the CSV and delimited formatters — and had
-  already needed the same one-line bugfix pasted into both places once.
-  No behavior change (verified: CSV escaping only ever differed from
-  delimited-with-comma in implementation, never in output).
-- **`Test-LdapFilter` folds its `()`-empty-parens check into the existing
-  depth-tracking loop** instead of a separate full-string `.Contains`
-  pre-pass, removing a redundant O(n) scan. No behavior change.
-
 - **Single-valued scrambled attributes were truncated to their first
   character in CSV, JSON, and delimited output.** The scramble branch in
   `ConvertTo-TransformedEntry` piped one value through `ForEach-Object`
@@ -76,8 +109,8 @@ All notable changes to PSldap are documented here.
   exactly the limit. And when the server enforces a size/time limit,
   `SendRequest` throws `DirectoryOperationException` — the entries
   already received were thrown away with it. `Invoke-LdapSearch` now
-  keeps the partial results attached to the exception's response and
-  warns (matching ldapsearch behavior).
+  keeps the partial results attached to the exception's response, writes
+  them, and still reports the search as failed (see the correction above).
 - **Test suite now runs on Linux/macOS.** Tests hardcoded
   `$env:TEMP`, which exists only on Windows — 11 tests failed with
   "Cannot bind argument to parameter 'Path'" elsewhere. Replaced with
@@ -85,6 +118,16 @@ All notable changes to PSldap are documented here.
 
 ### Changed
 
+- **`Format-CsvOutput`/`Format-CsvField` are now thin wrappers over
+  `Format-DelimitedOutput`/`Format-DelimitedField` with `,`** (mirroring
+  the existing `Format-TabOutput` pattern), removing a row-building block
+  that was duplicated between the CSV and delimited formatters — and had
+  already needed the same one-line bugfix pasted into both places once.
+  No behavior change (verified: CSV escaping only ever differed from
+  delimited-with-comma in implementation, never in output).
+- **`Test-LdapFilter` folds its `()`-empty-parens check into the existing
+  depth-tracking loop** instead of a separate full-string `.Contains`
+  pre-pass, removing a redundant O(n) scan. No behavior change.
 - **`Test-LdapFilter` rejects `()` and top-level sibling filters.**
   Balanced-paren checking alone accepted `()` and `(a=b)(c=d)`, letting
   malformed filters travel to the server before failing. Depth may now
@@ -103,6 +146,8 @@ All notable changes to PSldap are documented here.
   `Format-JsonOutput`, and `Invoke-SearchAndOutput`. The main-block
   `$searchSpecs` loop accumulation was also converted. Public API and
   return types are unchanged — all callers receive plain arrays.
+- **`-countEntries` reports the entry count only when every search
+  succeeded** (see Fixed). Previously it always did.
 
 ### Documentation
 
@@ -115,9 +160,19 @@ All notable changes to PSldap are documented here.
 - `Get-BindCredential` synopsis corrected (returns `NetworkCredential`,
   not `PSCredential`); stale "every Windows PowerShell install" wording
   in `ad-ldap-query/Invoke-AdLdapQuery.ps1` updated for the 5.1 drop.
+- `-countEntries` and `-separateOutputFilePerSearch` help and README rows
+  describe the new failure-precedence and shared-file behavior.
 
 ### Tests
 
+- **End-to-end tests.** A new `End-to-End (script run)` block runs
+  `psldap.ps1 -dryRun` as a child process and checks stdout and the exit
+  code. That covers the main block, which every other test skips.
+- **New unit tests** cover `Get-OutputColumns`, `Write-SearchOutput
+  -Append`, UTF-16 and empty password files, and `((a=b))`.
+- **Two new offline tests** in the `ad-ldap-query` harness cover the
+  stricter filter checks.
+- The suite now has 144 tests (up from 127).
 - **New regression tests** for the scalar-truncation fix (formatters emit
   the full value for a scalar attribute), the BOM-in-password-file fix
   (`Get-BindCredential` strips `EF BB BF`), and the stricter

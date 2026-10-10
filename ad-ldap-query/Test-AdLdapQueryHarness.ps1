@@ -269,6 +269,23 @@ Run-OfflineTest 'Malformed filter (unbalanced parens) is rejected before AD I/O'
     Assert-True ($errMsg -match 'Invalid LDAP filter') "Expected local validation message, got: $errMsg"
 }
 
+Run-OfflineTest 'Structurally malformed filters are rejected before AD I/O' {
+    # Balanced parens alone used to pass all of these through to the server.
+    foreach ($bad in @('(a=b)(c=d)', '()', '(&()(a=b))', '((a=b))')) {
+        $threw = $false
+        $errMsg = ''
+        try { Invoke-AdLdapQuery -Filter $bad } catch { $threw = $true; $errMsg = $_.Exception.Message }
+        Assert-True $threw "Filter '$bad' should throw locally"
+        Assert-True ($errMsg -match 'Invalid LDAP filter') "Expected local validation message for '$bad', got: $errMsg"
+    }
+}
+
+Run-OfflineTest 'Well-formed compound filters pass the local shape check' {
+    foreach ($good in @('(objectClass=user)', '(&(objectClass=user)(cn=a*))', '(!(cn=x))', '(cn=\28x\29)')) {
+        Assert-True (Test-AdLdapFilterShape -Value $good) "Filter '$good' should pass the shape check"
+    }
+}
+
 Run-OfflineTest 'Negative MaxResults is rejected' {
     $threw = $false
     try { Invoke-AdLdapQuery -Filter '(objectClass=user)' -MaxResults -1 } catch { $threw = $true }

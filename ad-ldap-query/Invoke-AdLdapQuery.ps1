@@ -62,7 +62,8 @@ param(
 
 # ============================================================================
 # Helper: structural LDAP-filter check (no AD round-trip).
-# Catches the most common malformed filters (unbalanced parens, empty input)
+# Catches the most common malformed filters (unbalanced parens, empty input,
+# '()', '((', sibling top-level filters)
 # locally so the function fails fast without binding to AD.
 # ============================================================================
 function Test-AdLdapFilterShape {
@@ -71,11 +72,20 @@ function Test-AdLdapFilterShape {
     if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
     if ($Value[0] -ne '(' -or $Value[$Value.Length - 1] -ne ')') { return $false }
 
+    # Same rules as psldap.ps1's Test-LdapFilter: balanced parens, depth may
+    # only return to 0 at the last character (so '(a=b)(c=d)' — two sibling
+    # filters — is rejected), and no '(' may be immediately followed by '('
+    # or ')' (RFC 4515: an operator or attribute must come next).
     $depth = 0
-    foreach ($ch in $Value.ToCharArray()) {
-        if ($ch -eq '(') { $depth++ }
+    for ($i = 0; $i -lt $Value.Length; $i++) {
+        $ch = $Value[$i]
+        if ($ch -eq '(') {
+            $depth++
+            if ($i -lt $Value.Length - 1 -and ($Value[$i + 1] -eq ')' -or $Value[$i + 1] -eq '(')) { return $false }
+        }
         elseif ($ch -eq ')') { $depth-- }
         if ($depth -lt 0) { return $false }
+        if ($depth -eq 0 -and $i -lt $Value.Length - 1) { return $false }
     }
     return ($depth -eq 0)
 }
@@ -116,8 +126,8 @@ function Invoke-AdLdapQuery {
     # --- Local validation (no AD I/O yet) ---
     if (-not (Test-AdLdapFilterShape -Value $Filter)) {
         throw "Invalid LDAP filter: '$Filter'. " +
-              "Filter must be non-empty, start with '(', end with ')', " +
-              "and have balanced parentheses."
+              "Filter must be a single non-empty filter that starts with '(', " +
+              "ends with ')', and has balanced parentheses with no '()' or '(('."
     }
 
     if ($MaxResults -lt 1) {
