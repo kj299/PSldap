@@ -10,9 +10,14 @@ scramble).
 
 - **PowerShell 7.2 or newer.** Windows PowerShell 5.1 is no longer supported
   (see CHANGELOG for the 0.3.0 release notes).
-- **No PowerShell modules to install.** The script uses only .NET BCL
-  assemblies that ship with Windows
+- **No PowerShell modules to install.** The script uses only .NET
+  assemblies that ship with PowerShell 7
   (`System.DirectoryServices.Protocols`, `System.Net`).
+- **Windows, or Linux for explicit binds.** On Linux,
+  `System.DirectoryServices.Protocols` uses the system OpenLDAP client
+  library (`libldap`). Simple binds with `-bindDN` work
+  there, and CI runs the live tests that way. Integrated (Negotiate)
+  auth as the current user is Windows-only. macOS is untested.
 
 ## Installation
 
@@ -173,10 +178,10 @@ The three password options are mutually exclusive and each requires `-bindDN`.
 | Parameter                  | Default            | Notes                                                          |
 |----------------------------|--------------------|----------------------------------------------------------------|
 | `-baseDN` (`-b`)           | derived from domain | Search base.                                                  |
-| `-filter`                  | `(objectClass=*)`  | LDAP filter. May be given multiple times for several searches. |
+| `-filter`                  | `(objectClass=*)`  | LDAP filter. A comma-separated list (`'(a=1)','(b=2)'`) runs several searches. |
 | `-filterFile` (`-f`)       | —                  | File of filters, one per line (`#` comments ignored).          |
 | `-ldapURLFile`             | —                  | File of LDAP URLs, each defining base/scope/filter/attributes. |
-| `-requestedAttribute`      | all                | Attributes (columns) to return. Repeatable or comma-separated. |
+| `-requestedAttribute`      | all                | Attributes (columns) to return, comma-separated (`cn,mail`). `*` / `+` expand to the returned attributes. |
 | `-scope` (`-s`)            | `sub`              | `base`, `one`, `sub`, or `subordinates`.                       |
 | `-sizeLimit` (`-z`)        | `0` (no limit)     | Max entries the server returns.                                |
 | `-timeLimitSeconds` (`-l`) | `0` (no limit)     | Per-search server time budget.                                 |

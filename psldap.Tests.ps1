@@ -1,6 +1,8 @@
 <#
 .SYNOPSIS
-    Unit tests for psldap.ps1 helper functions.
+    Unit tests for psldap.ps1 helper functions, plus an end-to-end block
+    that runs psldap.ps1 -dryRun as a child process (the live tier against
+    a real server is tests/live/psldap.Live.Tests.ps1).
     Uses a built-in lightweight test harness — no external modules required.
     Run with: .\run-tests.ps1 -Iterations 3
 #>
