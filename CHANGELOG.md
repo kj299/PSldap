@@ -4,6 +4,35 @@ All notable changes to PSldap are documented here.
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [0.4.0] - 2026-10-10
+
+> ⚠️ **Upgrade strongly recommended.** In 0.3.0, and in every release since
+> the 2026-03 rewrite, every search against a real server failed, and
+> results printed to stdout were swallowed. Only `-dryRun` worked. Both are fixed here, and a new live OpenLDAP test tier
+> in CI now catches this class of bug.
+>
+> **Visible behavior changes.** Most of these are fixes, but output or
+> exit codes can differ from 0.3.0:
+>
+> 1. **Attribute names keep the server's casing and come out sorted.** For
+>    example, `givenName` instead of `givenname`, in a stable order. JSON
+>    keys and CSV/delimited headers change for mixed-case attributes.
+> 2. **Several searches can no longer share one `-outputFile` in JSON or
+>    CSV/delimited format.** Add `-separateOutputFilePerSearch`. LDIF,
+>    dns-only and values-only now append instead of overwriting.
+> 3. **An empty bind password is refused** instead of being sent as an
+>    unauthenticated simple bind.
+> 4. **Exit codes report failures that used to be hidden:**
+>    - `-countEntries` no longer masks a failed search.
+>    - A filter or URL file with no valid lines is an error. It no longer
+>      searches with `(objectClass=*)`.
+>    - An invalid scope in an LDAP URL now exits 1.
+> 5. **Filter validation is stricter.** `((a=b))`, `()` and sibling
+>    top-level filters like `(a=b)(c=d)` are rejected before reaching the
+>    server.
+
 ### Fixed
 
 - **Every real search failed: `-dereferencePolicy` mapped to enum names that
