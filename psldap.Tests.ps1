@@ -1176,6 +1176,25 @@ Describe 'Regression Tests' {
         }
     }
 
+    It 'Get-BindCredential rejects a truncated (odd-length) UTF-16 password file' {
+        # A dangling byte must fail loudly, not decode to U+FFFD and become a
+        # silently wrong password that fails the bind with a misleading cause.
+        $pwPath = Join-Path $script:TestTempDir 'psldap_test_utf16_odd_pw.txt'
+        try {
+            [System.IO.File]::WriteAllBytes($pwPath, [byte[]]@(0xFF, 0xFE, 0x61, 0x00, 0x62))
+            $script:bindPasswordFile = $pwPath
+            $script:bindDN = 'cn=admin,dc=example,dc=com'
+            $threw = $false
+            try { $null = Get-BindCredential } catch { $threw = $true }
+            Assert-True $threw "Odd-length UTF-16 password file should be rejected"
+        }
+        finally {
+            $script:bindPasswordFile = $null
+            $script:bindDN = $null
+            if (Test-Path $pwPath) { Remove-Item $pwPath -Force }
+        }
+    }
+
     It 'Get-BindCredential refuses an empty password instead of an unauthenticated bind' {
         # Regression: an empty (or whitespace/newline-only) password file
         # produced a DN + empty-password credential — an unauthenticated

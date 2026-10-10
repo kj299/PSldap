@@ -32,7 +32,8 @@ All notable changes to PSldap are documented here.
     UTF-8, but Windows PowerShell 5.1's `Out-File` writes UTF-16LE by
     default. `Get-BindCredential` now honors UTF-16LE and UTF-16BE
     byte-order marks, and decodes the file before looking for the end of
-    the line.
+    the line. A truncated UTF-16 file is now rejected; it no longer turns
+    into a silently wrong password.
   - **An empty password silently became an unauthenticated bind.** An empty
     or whitespace-only `-bindPasswordFile` (or pressing Enter at
     `-promptForBindPassword`) sent a DN with an empty password. That is an
@@ -172,7 +173,7 @@ All notable changes to PSldap are documented here.
   -Append`, UTF-16 and empty password files, and `((a=b))`.
 - **Two new offline tests** in the `ad-ldap-query` harness cover the
   stricter filter checks.
-- The suite now has 144 tests (up from 127).
+- The suite now has 145 tests (up from 127).
 - **New regression tests** for the scalar-truncation fix (formatters emit
   the full value for a scalar attribute), the BOM-in-password-file fix
   (`Get-BindCredential` strips `EF BB BF`), and the stricter

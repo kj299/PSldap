@@ -376,11 +376,13 @@ function Get-BindCredential {
                 $bomLength = 3
             }
             elseif ($fileBytes.Length -ge 2 -and $fileBytes[0] -eq 0xFF -and $fileBytes[1] -eq 0xFE) {
-                $encoding = [System.Text.Encoding]::Unicode           # UTF-16LE
+                # Strict decoders (throwOnInvalidBytes): a truncated/odd-length
+                # file must fail loudly, not become a U+FFFD in the password.
+                $encoding = [System.Text.UnicodeEncoding]::new($false, $false, $true)  # UTF-16LE
                 $bomLength = 2
             }
             elseif ($fileBytes.Length -ge 2 -and $fileBytes[0] -eq 0xFE -and $fileBytes[1] -eq 0xFF) {
-                $encoding = [System.Text.Encoding]::BigEndianUnicode  # UTF-16BE
+                $encoding = [System.Text.UnicodeEncoding]::new($true, $false, $true)   # UTF-16BE
                 $bomLength = 2
             }
             # Decode first, THEN find the line end: in UTF-16 a CR/LF byte
@@ -1358,9 +1360,11 @@ function Invoke-SearchAndOutput {
     }
     elseif ($OutFile) {
         # Several searches sharing one file: the first write of this run
-        # truncates it, later searches append rather than overwrite.
-        $appendToFile = [bool]$script:sharedOutputFileStarted
-        $script:sharedOutputFileStarted = $true
+        # truncates it, later searches append rather than overwrite. Keyed on
+        # the path and search index, so a first search (or a different file,
+        # e.g. when dot-sourced) never appends to a stale file.
+        $appendToFile = ($SearchIndex -gt 1 -and $script:sharedOutputFilePath -eq $OutFile)
+        $script:sharedOutputFilePath = $OutFile
     }
 
     Write-SearchOutput `
@@ -1556,7 +1560,7 @@ if ($searchSpecs.Count -eq 0) {
 # LDIF, dns-only, and values-only concatenate cleanly, so later searches are
 # appended. JSON and CSV/delimited do not: a second JSON array or a second
 # header row would corrupt the file, so require one file per search.
-$script:sharedOutputFileStarted = $false
+$script:sharedOutputFilePath = $null
 if ($outputFile -and -not $separateOutputFilePerSearch -and $searchSpecs.Count -gt 1 -and
     $outputFormat -notin @('LDIF', 'dns-only', 'values-only')) {
     Write-Error ("$($searchSpecs.Count) searches cannot share one -outputFile with -outputFormat '$outputFormat'. " +
