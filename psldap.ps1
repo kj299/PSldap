@@ -91,7 +91,8 @@
     Display which searches would be issued without sending them.
 
 .PARAMETER countEntries
-    Exit code represents the number of entries returned (max 255).
+    Exit code represents the number of entries returned (max 255). If any
+    search fails, the failure's exit code is returned instead.
 
 .PARAMETER outputFormat
     Output format: LDIF, JSON, CSV, multi-valued-csv, tab-delimited,
@@ -119,6 +120,9 @@
 
 .PARAMETER separateOutputFilePerSearch
     Generate a separate output file per search when using multiple filters.
+    Without it, multiple searches share -outputFile: LDIF, dns-only, and
+    values-only results are appended in order; JSON and CSV/delimited
+    formats require this switch (concatenating them would corrupt the file).
 
 .PARAMETER wrapColumn
     Column at which to wrap long LDIF lines. Default: 76. 0 = no wrapping.
@@ -345,7 +349,8 @@ function Get-BindCredential {
     <#
     .SYNOPSIS
         Resolves bind credentials from the various input options.
-        Returns a NetworkCredential or $null. Passwords are handled as
+        Returns a NetworkCredential or $null; throws if the resolved
+        password is empty. Passwords are handled as
         SecureString throughout and never held in plaintext longer than
         necessary.
     #>
@@ -358,45 +363,65 @@ function Get-BindCredential {
         # Build SecureString character-by-character to avoid plaintext string allocation
         $securePass = [System.Security.SecureString]::new()
         $fileBytes = [System.IO.File]::ReadAllBytes($script:bindPasswordFile)
+        $fileChars = $null
         try {
-            # Skip a UTF-8 BOM (EF BB BF). Notepad and Windows PowerShell's
-            # Out-File write one; U+FEFF is NOT whitespace, so the trim below
-            # would otherwise leave it as the password's first character.
-            $lineStart = 0
+            # Honor a byte-order mark. U+FEFF is NOT whitespace, so the trim
+            # below would otherwise keep it as the password's first character;
+            # and UTF-16 (Windows PowerShell 5.1's default Out-File encoding)
+            # decoded as UTF-8 would garble the whole password. No BOM: UTF-8.
+            $encoding = [System.Text.Encoding]::UTF8
+            $bomLength = 0
             if ($fileBytes.Length -ge 3 -and
                 $fileBytes[0] -eq 0xEF -and $fileBytes[1] -eq 0xBB -and $fileBytes[2] -eq 0xBF) {
-                $lineStart = 3
+                $bomLength = 3
             }
-            # Find first line (stop at CR or LF)
-            $lineEnd = $fileBytes.Length
-            for ($i = $lineStart; $i -lt $fileBytes.Length; $i++) {
-                if ($fileBytes[$i] -eq 0x0A -or $fileBytes[$i] -eq 0x0D) {
+            elseif ($fileBytes.Length -ge 2 -and $fileBytes[0] -eq 0xFF -and $fileBytes[1] -eq 0xFE) {
+                # Strict decoders (throwOnInvalidBytes): a truncated/odd-length
+                # file must fail loudly, not become a U+FFFD in the password.
+                $encoding = [System.Text.UnicodeEncoding]::new($false, $false, $true)  # UTF-16LE
+                $bomLength = 2
+            }
+            elseif ($fileBytes.Length -ge 2 -and $fileBytes[0] -eq 0xFE -and $fileBytes[1] -eq 0xFF) {
+                $encoding = [System.Text.UnicodeEncoding]::new($true, $false, $true)   # UTF-16BE
+                $bomLength = 2
+            }
+            # Decode first, THEN find the line end: in UTF-16 a CR/LF byte
+            # value can appear inside an ordinary character's code unit.
+            $fileChars = $encoding.GetChars($fileBytes, $bomLength, $fileBytes.Length - $bomLength)
+            $lineEnd = $fileChars.Length
+            for ($i = 0; $i -lt $fileChars.Length; $i++) {
+                if ($fileChars[$i] -eq "`n" -or $fileChars[$i] -eq "`r") {
                     $lineEnd = $i
                     break
                 }
             }
-            # Trim leading/trailing whitespace, decode as UTF-8, append char by char
-            $lineChars = [System.Text.Encoding]::UTF8.GetChars($fileBytes, $lineStart, $lineEnd - $lineStart)
+            # Trim leading/trailing whitespace of the first line, append char by char
             $trimStart = 0
-            $trimEnd = $lineChars.Length - 1
-            while ($trimStart -le $trimEnd -and [char]::IsWhiteSpace($lineChars[$trimStart])) { $trimStart++ }
-            while ($trimEnd -ge $trimStart -and [char]::IsWhiteSpace($lineChars[$trimEnd])) { $trimEnd-- }
+            $trimEnd = $lineEnd - 1
+            while ($trimStart -le $trimEnd -and [char]::IsWhiteSpace($fileChars[$trimStart])) { $trimStart++ }
+            while ($trimEnd -ge $trimStart -and [char]::IsWhiteSpace($fileChars[$trimEnd])) { $trimEnd-- }
             for ($i = $trimStart; $i -le $trimEnd; $i++) {
-                $securePass.AppendChar($lineChars[$i])
+                $securePass.AppendChar($fileChars[$i])
             }
             $securePass.MakeReadOnly()
         }
         finally {
             # Zero out the byte and char arrays to remove password from memory
             [Array]::Clear($fileBytes, 0, $fileBytes.Length)
-            if ($lineChars) { [Array]::Clear($lineChars, 0, $lineChars.Length) }
+            if ($fileChars) { [Array]::Clear($fileChars, 0, $fileChars.Length) }
         }
     }
     elseif ($script:bindPassword) {
         $securePass = $script:bindPassword
     }
 
-    if ($securePass) {
+    if ($null -ne $securePass) {
+        # An empty password with a bind DN is an *unauthenticated* simple bind
+        # (RFC 4513 §5.1.2), which some servers accept as anonymous — a
+        # silent downgrade. Refuse it instead of sending it.
+        if ($securePass.Length -eq 0) {
+            throw "The bind password is empty. Supply a non-empty password, or omit -bindDN and the password options to use integrated (Negotiate) auth as the current user."
+        }
         return [System.Net.NetworkCredential]::new($script:bindDN, $securePass)
     }
     return $null
@@ -462,7 +487,8 @@ function Test-LdapFilter {
     <#
     .SYNOPSIS
         Basic validation that a string looks like a valid LDAP filter.
-        Checks balanced parentheses and non-empty content.
+        Checks balanced parentheses, a single top-level filter, and that
+        no '(' is immediately followed by '(' or ')'.
     #>
     param([string]$Filter)
 
@@ -475,9 +501,10 @@ function Test-LdapFilter {
         $ch = $Filter[$i]
         if ($ch -eq '(') {
             $depth++
-            # Empty parens '()' are invalid anywhere, top-level or nested —
-            # check in the same pass instead of a separate full-string scan.
-            if ($i -lt $Filter.Length - 1 -and $Filter[$i + 1] -eq ')') { return $false }
+            # RFC 4515: '(' must be followed by an operator (&, |, !) or an
+            # attribute — so '()' (empty) and '((' (e.g. '((a=b))') are
+            # invalid anywhere, top-level or nested. Checked in the same pass.
+            if ($i -lt $Filter.Length - 1 -and ($Filter[$i + 1] -eq ')' -or $Filter[$i + 1] -eq '(')) { return $false }
         }
         elseif ($ch -eq ')') { $depth-- }
         if ($depth -lt 0) { return $false }
@@ -530,7 +557,10 @@ function Read-SearchSpecsFromLdapURLFile {
 
         # Split host:port from the rest
         $slashIdx = $url.IndexOf('/')
-        if ($slashIdx -lt 0) { continue }
+        if ($slashIdx -lt 0) {
+            Write-Warning "Skipping LDAP URL with no '/' after host[:port]: $trimmed"
+            continue
+        }
 
         $remainder = $url.Substring($slashIdx + 1)
 
@@ -999,11 +1029,14 @@ function Write-SearchOutput {
         [switch]$TeeToStdOut,
         [int]$WrapCol,
         [switch]$NoWrap,
-        [switch]$Terse
+        [switch]$Terse,
+        [switch]$Append
     )
 
     $output = switch ($Format) {
-        'LDIF' { Format-LdifOutput -Entries $Entries -WrapCol $WrapCol -NoWrap:$NoWrap -Terse:$Terse }
+        # When appending a later search to an LDIF file, skip the
+        # 'version: 1' header: RFC 2849 allows it only at the start.
+        'LDIF' { Format-LdifOutput -Entries $Entries -WrapCol $WrapCol -NoWrap:$NoWrap -Terse:($Terse -or $Append) }
         'JSON' { Format-JsonOutput -Entries $Entries }
         'CSV' { Format-CsvOutput -Entries $Entries -Columns $Columns }
         'multi-valued-csv' { Format-CsvOutput -Entries $Entries -Columns $Columns -MultiValued }
@@ -1020,7 +1053,12 @@ function Write-SearchOutput {
         # which breaks LDIF (RFC 2849 mandates no BOM) and many CSV consumers.
         $resolvedPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutFile)
         $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-        [System.IO.File]::WriteAllText($resolvedPath, $output, $utf8NoBom)
+        if ($Append) {
+            [System.IO.File]::AppendAllText($resolvedPath, $output, $utf8NoBom)
+        }
+        else {
+            [System.IO.File]::WriteAllText($resolvedPath, $output, $utf8NoBom)
+        }
         if ($TeeToStdOut) {
             Write-Output $output
         }
@@ -1213,11 +1251,49 @@ function Invoke-LdapSearch {
     return $allEntries
 }
 
+function Get-OutputColumns {
+    <#
+    .SYNOPSIS
+        Chooses the column list for CSV / tab / delimited output.
+        Explicitly requested attributes are used as-is. '*' (all user
+        attributes) and '+' (all operational attributes) are request
+        wildcards, not attribute names — they never appear as entry keys, so
+        as literal columns they'd be blank. With a wildcard (or no attributes
+        requested), the columns are the named attributes first, then every
+        other attribute found in the entries, in first-seen order.
+    #>
+    param(
+        [string[]]$Attrs,
+        [array]$Entries
+    )
+
+    $namedAttrs = @($Attrs | Where-Object { $_ -and $_ -ne '*' -and $_ -ne '+' })
+    if ($Attrs.Count -gt 0 -and $namedAttrs.Count -eq $Attrs.Count) {
+        return $Attrs
+    }
+
+    # Insertion-ordered de-duplication (no LinkedHashSet in .NET).
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $colList = [System.Collections.Generic.List[string]]::new()
+    foreach ($name in $namedAttrs) {
+        if ($name -ne 'dn' -and $seen.Add($name)) { $colList.Add($name) }
+    }
+    foreach ($entry in $Entries) {
+        foreach ($key in $entry.Keys) {
+            if ($key -ne 'dn' -and $seen.Add($key)) { $colList.Add($key) }
+        }
+    }
+    return $colList.ToArray()
+}
+
 function Invoke-SearchAndOutput {
     <#
     .SYNOPSIS
         Executes a single search, transforms entries, and writes output.
-        Returns the count of entries found. If the server truncates the
+        The entry count is reported through -EntryCount ([ref]), NOT the
+        return value: when output goes to stdout, Write-SearchOutput emits
+        the formatted text on this function's success stream, so a returned
+        count would be mixed in with it. If the server truncates the
         search (SizeLimitExceeded/TimeLimitExceeded), the partial entries
         it returned are still transformed and written, then the failure is
         re-thrown so the caller's usual exit-code / -continueOnError
@@ -1231,7 +1307,8 @@ function Invoke-SearchAndOutput {
         [string[]]$Attrs,
         [int]$SearchIndex,
         [int]$TotalSearches,
-        [string]$OutFile
+        [string]$OutFile,
+        [ref]$EntryCount
     )
 
     $searchFailure = $null
@@ -1271,27 +1348,23 @@ function Invoke-SearchAndOutput {
 
     $columns = @()
     if ($script:outputFormat -in @('CSV', 'multi-valued-csv', 'tab-delimited', 'multi-valued-tab-delimited', 'delimited', 'multi-valued-delimited')) {
-        if ($Attrs.Count -gt 0) {
-            $columns = $Attrs
-        }
-        else {
-            # Insertion-ordered de-duplication (no LinkedHashSet in .NET).
-            $seen = [System.Collections.Generic.HashSet[string]]::new()
-            $colList = [System.Collections.Generic.List[string]]::new()
-            foreach ($entry in $transformedEntries) {
-                foreach ($key in $entry.Keys) {
-                    if ($key -ne 'dn' -and $seen.Add($key)) { $colList.Add($key) }
-                }
-            }
-            $columns = $colList.ToArray()
-        }
+        $columns = @(Get-OutputColumns -Attrs $Attrs -Entries $transformedEntries)
     }
 
     $currentOutFile = $OutFile
+    $appendToFile = $false
     if ($script:separateOutputFilePerSearch -and $OutFile -and $TotalSearches -gt 1) {
         $ext = [System.IO.Path]::GetExtension($OutFile)
         $base = [System.IO.Path]::ChangeExtension($OutFile, $null).TrimEnd('.')
         $currentOutFile = "${base}-${SearchIndex}${ext}"
+    }
+    elseif ($OutFile) {
+        # Several searches sharing one file: the first write of this run
+        # truncates it, later searches append rather than overwrite. Keyed on
+        # the path and search index, so a first search (or a different file,
+        # e.g. when dot-sourced) never appends to a stale file.
+        $appendToFile = ($SearchIndex -gt 1 -and $script:sharedOutputFilePath -eq $OutFile)
+        $script:sharedOutputFilePath = $OutFile
     }
 
     Write-SearchOutput `
@@ -1303,20 +1376,21 @@ function Invoke-SearchAndOutput {
         -TeeToStdOut:$script:teeResultsToStandardOut `
         -WrapCol $script:wrapColumn `
         -NoWrap:$script:dontWrap `
-        -Terse:$script:terse
+        -Terse:$script:terse `
+        -Append:$appendToFile
 
     if (-not $script:terse -and -not $script:dryRun) {
         Write-Host ""
         Write-Host "# numEntries: $($transformedEntries.Count)" -ForegroundColor DarkGray
     }
 
+    if ($EntryCount) { $EntryCount.Value = $transformedEntries.Count }
+
     if ($searchFailure) {
-        # Partial results are already written above; now surface the
-        # original failure so it still counts as a failed search.
+        # Partial results are already written (and counted) above; now
+        # surface the original failure so it still counts as a failed search.
         throw $searchFailure
     }
-
-    return $transformedEntries.Count
 }
 
 # ============================================================================
@@ -1448,6 +1522,15 @@ elseif ($filterFile) {
     }
 }
 
+# A file that yields no searches (every line invalid, or only comments) is
+# an error — NOT a cue to fall through to the '(objectClass=*)' default below,
+# which would silently dump the whole directory instead of what was asked.
+if (($ldapURLFile -or $filterFile) -and $searchSpecs.Count -eq 0) {
+    $sourceFile = $(if ($ldapURLFile) { $ldapURLFile } else { $filterFile })
+    Write-Error "No valid searches found in '$sourceFile'."
+    exit 1
+}
+
 if ($filter) {
     foreach ($f in $filter) {
         if (-not (Test-LdapFilter -Filter $f)) {
@@ -1473,6 +1556,18 @@ if ($searchSpecs.Count -eq 0) {
     })
 }
 
+# --- Validate multiple searches sharing one output file ---
+# LDIF, dns-only, and values-only concatenate cleanly, so later searches are
+# appended. JSON and CSV/delimited do not: a second JSON array or a second
+# header row would corrupt the file, so require one file per search.
+$script:sharedOutputFilePath = $null
+if ($outputFile -and -not $separateOutputFilePerSearch -and $searchSpecs.Count -gt 1 -and
+    $outputFormat -notin @('LDIF', 'dns-only', 'values-only')) {
+    Write-Error ("$($searchSpecs.Count) searches cannot share one -outputFile with -outputFormat '$outputFormat'. " +
+        "Add -separateOutputFilePerSearch, or use LDIF, dns-only, or values-only.")
+    exit 1
+}
+
 # --- Validate countEntries with multiple searches ---
 if ($countEntries -and $searchSpecs.Count -gt 1) {
     Write-Warning "-countEntries can only be used with a single search. Only the total count will be returned."
@@ -1487,7 +1582,13 @@ $scopeMap = @{
 }
 
 # --- Resolve credentials ---
-$credential = Get-BindCredential
+try {
+    $credential = Get-BindCredential
+}
+catch {
+    Write-Error "Could not read bind credentials: $($_.Exception.Message)"
+    exit 1
+}
 
 # --- Connect ---
 $connection = $null
@@ -1525,16 +1626,20 @@ foreach ($spec in $searchSpecs) {
     $searchScopeStr = if ($spec.scope) { $spec.scope } else { $scope }
     if (-not $scopeMap.ContainsKey($searchScopeStr)) {
         Write-Error "Invalid scope '$searchScopeStr'. Must be one of: base, one, sub, subordinates."
+        $exitCode = 1
         if (-not $continueOnError) { break }
         continue
     }
     $searchScope = $scopeMap[$searchScopeStr]
 
+    # The count comes back through [ref]: the function's success stream is
+    # the formatted output itself, which must flow through to stdout.
+    $searchCount = 0
     try {
-        $count = Invoke-SearchAndOutput -Conn $connection -BaseDN $searchBaseDN `
+        Invoke-SearchAndOutput -Conn $connection -BaseDN $searchBaseDN `
             -Filter $searchFilter -Scope $searchScope -Attrs $searchAttrs `
-            -SearchIndex $searchIndex -TotalSearches $searchSpecs.Count -OutFile $outputFile
-        $totalEntryCount += $count
+            -SearchIndex $searchIndex -TotalSearches $searchSpecs.Count -OutFile $outputFile `
+            -EntryCount ([ref]$searchCount)
     }
     catch [System.DirectoryServices.Protocols.LdapException] {
         $ldapEx = $_.Exception
@@ -1545,10 +1650,10 @@ foreach ($spec in $searchSpecs) {
             try {
                 $connection.Dispose()
                 $connection = New-LdapConnection -Server $hostname -ServerPort $port -Credential $credential
-                $count = Invoke-SearchAndOutput -Conn $connection -BaseDN $searchBaseDN `
+                Invoke-SearchAndOutput -Conn $connection -BaseDN $searchBaseDN `
                     -Filter $searchFilter -Scope $searchScope -Attrs $searchAttrs `
-                    -SearchIndex $searchIndex -TotalSearches $searchSpecs.Count -OutFile $outputFile
-                $totalEntryCount += $count
+                    -SearchIndex $searchIndex -TotalSearches $searchSpecs.Count -OutFile $outputFile `
+                    -EntryCount ([ref]$searchCount)
             }
             catch {
                 Write-Error "Retry also failed: $($_.Exception.Message)"
@@ -1573,6 +1678,11 @@ foreach ($spec in $searchSpecs) {
         $exitCode = 1
         if (-not $continueOnError) { break }
     }
+    finally {
+        # Runs even when a catch above breaks out of the loop, so entries
+        # written from a partial (size/time-limited) search are counted too.
+        $totalEntryCount += $searchCount
+    }
 }
 
 # --- Cleanup ---
@@ -1581,7 +1691,10 @@ if ($connection) {
 }
 
 # --- Exit code ---
-if ($countEntries) {
+# A failure always wins: -countEntries reports the count only when every
+# search succeeded, otherwise a failed run could exit 0 (or with a count
+# that looks like a success) and hide the error from automation.
+if ($countEntries -and $exitCode -eq 0) {
     $exitCode = [Math]::Min($totalEntryCount, 255)
 }
 elseif ($requireMatch -and $totalEntryCount -eq 0 -and $exitCode -eq 0) {

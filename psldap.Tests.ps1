@@ -131,6 +131,15 @@ Describe 'Test-LdapFilter' {
         Assert-False (Test-LdapFilter -Filter $null)
     }
 
+    It "Returns false for a doubled opening paren '((a=b))'" {
+        # RFC 4515: '(' must be followed by &, |, ! or an attribute.
+        Assert-False (Test-LdapFilter -Filter '((a=b))')
+    }
+
+    It 'Returns true for escaped parens inside a value' {
+        Assert-True (Test-LdapFilter -Filter '(cn=\28x\29)')
+    }
+
     It 'Returns false for missing opening paren' {
         Assert-False (Test-LdapFilter -Filter 'objectClass=user)')
     }
@@ -823,6 +832,23 @@ Describe 'Write-SearchOutput' {
         Remove-Item $outPath -Force
     }
 
+    It 'Appends to the output file with -Append, and omits the LDIF version header' {
+        # Regression: each search of a multi-search run overwrote the shared
+        # -outputFile, so only the last search's results survived.
+        $outPath = Join-Path $script:TestTempDir 'psldap_test_append.ldif'
+        try {
+            Write-SearchOutput -Entries @([ordered]@{ dn = 'cn=a,dc=com'; cn = @('a') }) -Format 'LDIF' -WrapCol 76 -OutFile $outPath
+            Write-SearchOutput -Entries @([ordered]@{ dn = 'cn=b,dc=com'; cn = @('b') }) -Format 'LDIF' -WrapCol 76 -OutFile $outPath -Append
+            $content = Get-Content -Path $outPath -Raw
+            Assert-Match $content 'dn: cn=a,dc=com' "First search's entry was overwritten"
+            Assert-Match $content 'dn: cn=b,dc=com' "Second search's entry is missing"
+            Assert-Equal 1 ([regex]::Matches($content, 'version: 1').Count) "RFC 2849 allows 'version: 1' only once, at the start"
+        }
+        finally {
+            if (Test-Path $outPath) { Remove-Item $outPath -Force }
+        }
+    }
+
     It 'Dispatches to dns-only format correctly' {
         $entries = @([ordered]@{ dn = 'cn=test,dc=com'; cn = @('test') })
         $result = Write-SearchOutput -Entries $entries -Format 'dns-only' -WrapCol 76
@@ -913,6 +939,40 @@ Describe 'Read-FiltersFromFile - Filter Validation' {
 # Tests that grep / parse psldap.ps1 itself to catch regressions that are
 # easier to spot statically than to reproduce behaviorally.
 # ============================================================================
+Describe 'Get-OutputColumns' {
+    $entries = @(
+        [ordered]@{ dn = 'cn=a,dc=com'; cn = @('a'); mail = @('a@x') },
+        [ordered]@{ dn = 'cn=b,dc=com'; sn = @('B'); cn = @('b') }
+    )
+
+    It 'Uses explicitly requested attributes as-is' {
+        $cols = @(Get-OutputColumns -Attrs @('mail', 'cn') -Entries $entries)
+        Assert-Equal 'mail,cn' ($cols -join ',')
+    }
+
+    It 'Discovers columns in first-seen order when no attributes were requested' {
+        $cols = @(Get-OutputColumns -Attrs @() -Entries $entries)
+        Assert-Equal 'cn,mail,sn' ($cols -join ',')
+    }
+
+    It "Expands the '*' wildcard instead of using it as a literal column" {
+        # Regression: '*' became a CSV header with every row blank.
+        $cols = @(Get-OutputColumns -Attrs @('*') -Entries $entries)
+        Assert-Equal 'cn,mail,sn' ($cols -join ',')
+    }
+
+    It "Puts named attributes first when mixed with '+' or '*'" {
+        $cols = @(Get-OutputColumns -Attrs @('sn', '+') -Entries $entries)
+        Assert-Equal 'sn,cn,mail' ($cols -join ',')
+    }
+
+    It 'Returns a one-element array for a single requested attribute' {
+        $cols = @(Get-OutputColumns -Attrs @('mail') -Entries $entries)
+        Assert-Equal 1 $cols.Count
+        Assert-Equal 'mail' $cols[0]
+    }
+}
+
 Describe 'Source-Code Checks' {
     It 'psldap.ps1 does not reference [LinkedHashSet] (which does not exist in .NET)' {
         # Regression: a previous version tried to instantiate
@@ -1087,6 +1147,202 @@ Describe 'Regression Tests' {
         finally {
             $script:bindPasswordFile = $null
             $script:bindDN = $null
+            if (Test-Path $pwPath) { Remove-Item $pwPath -Force }
+        }
+    }
+
+    It 'Get-BindCredential decodes UTF-16 password files (LE and BE)' {
+        # Regression: Windows PowerShell 5.1's Out-File writes UTF-16LE by
+        # default; decoding it as UTF-8 garbled the password.
+        $pwPath = Join-Path $script:TestTempDir 'psldap_test_utf16_pw.txt'
+        try {
+            $cases = @(
+                @{ Name = 'UTF-16LE'; Bom = [byte[]]@(0xFF, 0xFE); Enc = [System.Text.Encoding]::Unicode },
+                @{ Name = 'UTF-16BE'; Bom = [byte[]]@(0xFE, 0xFF); Enc = [System.Text.Encoding]::BigEndianUnicode }
+            )
+            foreach ($case in $cases) {
+                # A non-ASCII char exercises real two-byte decoding.
+                [System.IO.File]::WriteAllBytes($pwPath, ($case.Bom + $case.Enc.GetBytes(" s3cr`u{00E9}t `r`nsecond line")))
+                $script:bindPasswordFile = $pwPath
+                $script:bindDN = 'cn=admin,dc=example,dc=com'
+                $cred = Get-BindCredential
+                Assert-Equal "s3cr`u{00E9}t" $cred.Password "$($case.Name) password file was mis-decoded"
+            }
+        }
+        finally {
+            $script:bindPasswordFile = $null
+            $script:bindDN = $null
+            if (Test-Path $pwPath) { Remove-Item $pwPath -Force }
+        }
+    }
+
+    It 'Get-BindCredential rejects a truncated (odd-length) UTF-16 password file' {
+        # A dangling byte must fail loudly, not decode to U+FFFD and become a
+        # silently wrong password that fails the bind with a misleading cause.
+        $pwPath = Join-Path $script:TestTempDir 'psldap_test_utf16_odd_pw.txt'
+        try {
+            [System.IO.File]::WriteAllBytes($pwPath, [byte[]]@(0xFF, 0xFE, 0x61, 0x00, 0x62))
+            $script:bindPasswordFile = $pwPath
+            $script:bindDN = 'cn=admin,dc=example,dc=com'
+            $threw = $false
+            try { $null = Get-BindCredential } catch { $threw = $true }
+            Assert-True $threw "Odd-length UTF-16 password file should be rejected"
+        }
+        finally {
+            $script:bindPasswordFile = $null
+            $script:bindDN = $null
+            if (Test-Path $pwPath) { Remove-Item $pwPath -Force }
+        }
+    }
+
+    It 'Get-BindCredential refuses an empty password instead of an unauthenticated bind' {
+        # Regression: an empty (or whitespace/newline-only) password file
+        # produced a DN + empty-password credential — an unauthenticated
+        # simple bind (RFC 4513 5.1.2) that some servers accept as anonymous.
+        $pwPath = Join-Path $script:TestTempDir 'psldap_test_empty_pw.txt'
+        try {
+            foreach ($content in @('', "   `r`n")) {
+                [System.IO.File]::WriteAllText($pwPath, $content)
+                $script:bindPasswordFile = $pwPath
+                $script:bindDN = 'cn=admin,dc=example,dc=com'
+                $threw = $false
+                try { $null = Get-BindCredential } catch { $threw = $true }
+                Assert-True $threw "An empty or whitespace-only password file should be refused"
+            }
+        }
+        finally {
+            $script:bindPasswordFile = $null
+            $script:bindDN = $null
+            if (Test-Path $pwPath) { Remove-Item $pwPath -Force }
+        }
+    }
+}
+
+# ============================================================================
+# End-to-End Tests (run psldap.ps1 as a child process)
+# ============================================================================
+# Every test above dot-sources psldap.ps1, which skips the Main Execution
+# block — so for a long time nothing exercised argument validation, the
+# search loop, stdout output, or exit codes, and a bug there (formatted
+# stdout output mixed into the entry count, so every search to stdout
+# failed and printed nothing) shipped unnoticed. -dryRun runs that whole path
+# without an LDAP server.
+
+# pwsh -File passes every argument as a single string, so '-filter a b' can't
+# express an array; multi-search tests use a two-line -filterFile instead.
+function New-TwoFilterFile {
+    param([string]$Name)
+    $path = Join-Path $script:TestTempDir $Name
+    Set-Content -Path $path -Value @('(cn=first)', '(cn=second)')
+    return $path
+}
+
+function Invoke-PsldapScript {
+    param([string[]]$Arguments)
+    $pwshPath = (Get-Process -Id $PID).Path
+    $scriptPath = Join-Path $PSScriptRoot 'psldap.ps1'
+    $output = & $pwshPath -NoProfile -NonInteractive -File $scriptPath @Arguments 2>&1 | Out-String
+    return @{ Output = $output; ExitCode = $LASTEXITCODE }
+}
+
+Describe 'End-to-End (script run)' {
+    It 'Writes formatted results to stdout and exits 0' {
+        # Regression: Write-SearchOutput's stdout text landed in
+        # Invoke-SearchAndOutput's return value next to the entry count;
+        # '$totalEntryCount += $count' then threw, nothing was printed, and
+        # the script exited 1 for every search not written to -outputFile.
+        $run = Invoke-PsldapScript @('-hostname', 'localhost', '-filter', '(cn=e2e)', '-dryRun', '-outputFormat', 'LDIF')
+        Assert-Equal 0 $run.ExitCode "Output: $($run.Output)"
+        Assert-Match $run.Output 'version: 1' "LDIF output never reached stdout"
+        Assert-NotMatch $run.Output 'Unexpected error' "Search failed"
+    }
+
+    It 'Runs every search of a multi-filter run to stdout' {
+        $filterPath = New-TwoFilterFile 'psldap_test_e2e_two_stdout.txt'
+        try {
+            $run = Invoke-PsldapScript @('-hostname', 'localhost', '-filterFile', $filterPath, '-dryRun', '-outputFormat', 'JSON')
+            Assert-Equal 0 $run.ExitCode "Output: $($run.Output)"
+            Assert-Match $run.Output 'Filter\s+: \(cn=first\)'
+            Assert-Match $run.Output 'Filter\s+: \(cn=second\)' "The loop stopped after the first search"
+        }
+        finally {
+            if (Test-Path $filterPath) { Remove-Item $filterPath -Force }
+        }
+    }
+
+    It 'Fails on a filter file with no valid filters instead of searching (objectClass=*)' {
+        # Regression: when every line was skipped as invalid, the default
+        # filter kicked in and the whole directory was searched, exit 0.
+        $filterPath = Join-Path $script:TestTempDir 'psldap_test_e2e_badfilters.txt'
+        try {
+            Set-Content -Path $filterPath -Value @('(cn=unbalanced', '((x)', '# comment')
+            $run = Invoke-PsldapScript @('-hostname', 'localhost', '-filterFile', $filterPath, '-dryRun')
+            Assert-Equal 1 $run.ExitCode "Output: $($run.Output)"
+            Assert-NotMatch $run.Output 'objectClass=\*' "Fell through to the match-everything default filter"
+        }
+        finally {
+            if (Test-Path $filterPath) { Remove-Item $filterPath -Force }
+        }
+    }
+
+    It 'Exits nonzero for an invalid scope in an LDAP URL, even with -countEntries' {
+        # Regressions: the invalid-scope path broke out of the loop without
+        # setting an exit code (exit 0), and -countEntries then overwrote
+        # any failure code with the entry count anyway.
+        $urlPath = Join-Path $script:TestTempDir 'psldap_test_e2e_urls.txt'
+        try {
+            Set-Content -Path $urlPath -Value 'ldap://localhost/dc=example,dc=com?cn?subtree?(cn=a)'
+            foreach ($extra in @(@(), @('-countEntries'))) {
+                $run = Invoke-PsldapScript (@('-hostname', 'localhost', '-ldapURLFile', $urlPath, '-dryRun') + $extra)
+                Assert-Equal 1 $run.ExitCode "Args: $($extra -join ' ') Output: $($run.Output)"
+            }
+        }
+        finally {
+            if (Test-Path $urlPath) { Remove-Item $urlPath -Force }
+        }
+    }
+
+    It 'Refuses multiple JSON searches sharing one -outputFile' {
+        $outPath = Join-Path $script:TestTempDir 'psldap_test_e2e_shared.json'
+        try {
+            $filterPath = New-TwoFilterFile 'psldap_test_e2e_two_json.txt'
+            $run = Invoke-PsldapScript @('-hostname', 'localhost', '-filterFile', $filterPath, '-dryRun', '-outputFormat', 'JSON', '-outputFile', $outPath)
+            Assert-Equal 1 $run.ExitCode "Output: $($run.Output)"
+            Assert-Match $run.Output 'separateOutputFilePerSearch'
+        }
+        finally {
+            if (Test-Path $outPath) { Remove-Item $outPath -Force }
+            if ($filterPath -and (Test-Path $filterPath)) { Remove-Item $filterPath -Force }
+        }
+    }
+
+    It 'Lets multiple LDIF searches share one -outputFile without repeating the version header' {
+        # (Dry runs return no entries, so overwrite vs. append is covered by
+        # the Write-SearchOutput -Append unit test; this guards the main-block
+        # wiring: no shared-file error for LDIF, and one header per file.)
+        $outPath = Join-Path $script:TestTempDir 'psldap_test_e2e_shared.ldif'
+        try {
+            $filterPath = New-TwoFilterFile 'psldap_test_e2e_two_ldif.txt'
+            $run = Invoke-PsldapScript @('-hostname', 'localhost', '-filterFile', $filterPath, '-dryRun', '-outputFile', $outPath)
+            Assert-Equal 0 $run.ExitCode "Output: $($run.Output)"
+            $content = Get-Content -Path $outPath -Raw
+            Assert-Equal 1 ([regex]::Matches($content, 'version: 1').Count) "Second search overwrote the file or repeated the header"
+        }
+        finally {
+            if (Test-Path $outPath) { Remove-Item $outPath -Force }
+            if ($filterPath -and (Test-Path $filterPath)) { Remove-Item $filterPath -Force }
+        }
+    }
+
+    It 'Refuses an empty bind password file' {
+        $pwPath = Join-Path $script:TestTempDir 'psldap_test_e2e_empty_pw.txt'
+        try {
+            [System.IO.File]::WriteAllText($pwPath, '')
+            $run = Invoke-PsldapScript @('-hostname', 'localhost', '-bindDN', 'cn=admin,dc=example,dc=com', '-bindPasswordFile', $pwPath, '-dryRun')
+            Assert-Equal 1 $run.ExitCode "Output: $($run.Output)"
+            Assert-Match $run.Output 'password is empty'
+        }
+        finally {
             if (Test-Path $pwPath) { Remove-Item $pwPath -Force }
         }
     }

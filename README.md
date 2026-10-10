@@ -191,7 +191,7 @@ The three password options are mutually exclusive and each requires `-bindDN`.
 | `-delimiter`                  | TAB (for delimited formats) | Column separator; see [Available delimiters](#available-delimiters). |
 | `-outputFile`                 | stdout  | Write results to a file (UTF-8, no BOM).                    |
 | `-teeResultsToStandardOut`    | off     | Write to both the file and the console.                     |
-| `-separateOutputFilePerSearch`| off     | One output file per filter when running several searches.   |
+| `-separateOutputFilePerSearch`| off     | One output file per filter when running several searches. Without it, LDIF/dns-only/values-only append to one file; JSON/CSV/delimited require it. |
 | `-terse`                      | off     | Suppress summary lines; emit only entries.                  |
 
 ### Transformations & flow control
@@ -204,7 +204,7 @@ The three password options are mutually exclusive and each requires `-bindDN`.
 | `-continueOnError` (`-c`) | Keep going after a failed search instead of stopping.                   |
 | `-dryRun` (`-n`)      | Show the searches that would run without sending them.                       |
 | `-requireMatch`       | Exit `1` if no entries matched.                                              |
-| `-countEntries`       | Set the exit code to the number of entries returned (capped at 255).        |
+| `-countEntries`       | Set the exit code to the number of entries returned (capped at 255). A failed search's error code takes precedence. |
 
 ## Security notes
 
