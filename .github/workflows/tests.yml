@@ -25,6 +25,10 @@ on:
 # PS 7.2+ only — running the suite on `powershell.exe` would throw
 # MissingMethodException at runtime.
 
+# Least privilege: the jobs only check out code and run tests.
+permissions:
+  contents: read
+
 jobs:
   test-pwsh:
     name: PowerShell 7 (Windows)
