@@ -44,3 +44,9 @@ if ($totalFailed -gt 0) {
     Write-Host "`nTotal failures across all runs: $totalFailed" -ForegroundColor Red
     exit 1
 }
+
+# Exit 0 explicitly. The end-to-end tests run psldap.ps1 as a child process,
+# some expecting it to fail, so $LASTEXITCODE is left nonzero by a PASSING
+# test — and GitHub Actions' pwsh step wrapper (and any caller that checks
+# $LASTEXITCODE) would report that as a failed run.
+exit 0

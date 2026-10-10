@@ -174,6 +174,10 @@ All notable changes to PSldap are documented here.
 - **Two new offline tests** in the `ad-ldap-query` harness cover the
   stricter filter checks.
 - The suite now has 145 tests (up from 127).
+- **`run-tests.ps1` now exits 0 explicitly on success.** Without that, a
+  passing end-to-end test that expects psldap.ps1 to fail left
+  `$LASTEXITCODE` at 1, and GitHub Actions' `pwsh` step wrapper reported a
+  green suite as a failed step.
 - **New regression tests** for the scalar-truncation fix (formatters emit
   the full value for a scalar attribute), the BOM-in-password-file fix
   (`Get-BindCredential` strips `EF BB BF`), and the stricter
